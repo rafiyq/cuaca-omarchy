@@ -203,8 +203,8 @@ function bmkgTodaySlots(bmkgReport) {
 }
 
 // Strip/hero icon for a raw slot: location-local hour decides night.
-function bmkgSlotIcon(slot) {
-  return iconForOpenMeteoCode(normalizeBmkgCode(slot.weather), !slotIsDay(bmkgSlotHour(slot)))
+function bmkgSlotIcon(slot, scheme) {
+  return iconForOpenMeteoCode(normalizeBmkgCode(slot.weather), !slotIsDay(bmkgSlotHour(slot)), scheme)
 }
 
 // BMKG warning rows (CAP parsed at the worker). The endpoint answers empty
@@ -431,21 +431,21 @@ function openMeteoCurrentCondition(dailyForecastReport) {
   }
 }
 
-function currentIcon(current, fallback) {
+function currentIcon(current, fallback, scheme) {
   if (!current) return fallback || ""
   if (current.bmkgWeatherCode !== undefined && current.bmkgWeatherCode !== null)
-    return iconForOpenMeteoCode(current.bmkgWeatherCode, !current.isDay)
+    return iconForOpenMeteoCode(current.bmkgWeatherCode, !current.isDay, scheme)
   if (current.openMeteoWeatherCode !== undefined && current.openMeteoWeatherCode !== null)
-    return iconForOpenMeteoCode(current.openMeteoWeatherCode, Number(current.isDay) === 0)
+    return iconForOpenMeteoCode(current.openMeteoWeatherCode, Number(current.isDay) === 0, scheme)
   if (current.weatherCode !== undefined && current.weatherCode !== null)
-    return iconForCode(current.weatherCode, false)
+    return iconForCode(current.weatherCode, false, scheme)
   return fallback || ""
 }
 
 // wttr.in has no day/night flag. Use its icon only to fill an empty initial
 // state, never to replace a day/night-aware icon resolved by Open-Meteo.
-function provisionalCurrentIcon(current, resolvedIcon) {
-  return resolvedIcon || currentIcon(current, "")
+function provisionalCurrentIcon(current, resolvedIcon, scheme) {
+  return resolvedIcon || currentIcon(current, "", scheme)
 }
 
 // Which response completes a location save depends on the active path: the
@@ -483,12 +483,12 @@ function bareTempForDay(day, kind, useImperial) {
   return v + "°"
 }
 
-function dayIcon(day) {
+function dayIcon(day, scheme) {
   if (!day) return ""
   if (day.bmkgWeatherCode !== undefined && day.bmkgWeatherCode !== null)
-    return iconForOpenMeteoCode(day.bmkgWeatherCode)
+    return iconForOpenMeteoCode(day.bmkgWeatherCode, false, scheme)
   if (day.openMeteoWeatherCode !== undefined && day.openMeteoWeatherCode !== null)
-    return iconForOpenMeteoCode(day.openMeteoWeatherCode)
+    return iconForOpenMeteoCode(day.openMeteoWeatherCode, false, scheme)
   if (!day.hourly || day.hourly.length === 0) return ""
 
   var best = day.hourly[0]
@@ -501,23 +501,46 @@ function dayIcon(day) {
       best = day.hourly[i]
     }
   }
-  return iconForCode(best.weatherCode, false)
+  return iconForCode(best.weatherCode, false, scheme)
 }
 
-function iconForOpenMeteoCode(code, night) {
+function iconForOpenMeteoCode(code, night, scheme) {
   var c = parseInt(String(code || "0"), 10)
-  if (c === 0) return iconForCode(113, night)
-  if (c === 1 || c === 2) return iconForCode(116, night)
-  if (c === 3) return iconForCode(119, night)
-  if (c === 45 || c === 48) return iconForCode(143, night)
-  if (c === 51 || c === 53 || c === 55 || c === 56 || c === 57 || c === 61) return iconForCode(266, night)
-  if (c === 63 || c === 65 || c === 66 || c === 67 || c === 80 || c === 81 || c === 82) return iconForCode(308, night)
-  if (c === 71 || c === 73 || c === 75 || c === 77 || c === 85 || c === 86) return iconForCode(338, night)
-  if (c === 95 || c === 96 || c === 99) return iconForCode(389, night)
-  return iconForCode(119, night)
+  if (c === 0) return iconForCode(113, night, scheme)
+  if (c === 1 || c === 2) return iconForCode(116, night, scheme)
+  if (c === 3) return iconForCode(119, night, scheme)
+  if (c === 45 || c === 48) return iconForCode(143, night, scheme)
+  if (c === 51 || c === 53 || c === 55 || c === 56 || c === 57 || c === 61) return iconForCode(266, night, scheme)
+  if (c === 63 || c === 65 || c === 66 || c === 67 || c === 80 || c === 81 || c === 82) return iconForCode(308, night, scheme)
+  if (c === 71 || c === 73 || c === 75 || c === 77 || c === 85 || c === 86) return iconForCode(338, night, scheme)
+  if (c === 95 || c === 96 || c === 99) return iconForCode(389, night, scheme)
+  return iconForCode(119, night, scheme)
 }
 
-function iconForCode(code, night) {
+// Emoji look-alike of the nerd-font map: same wttr-style codes, same
+// day/night intent, for setups where the nerd glyphs render as tofu. Only
+// reached when the widget's iconScheme setting says "emoji".
+function emojiForCode(code, night) {
+  var c = parseInt(String(code || "0"), 10)
+  switch (c) {
+    case 113: return night ? "🌙" : "☀️"
+    case 116: return night ? "🌙" : "⛅"
+    case 119: case 122: return "☁️"
+    case 143: case 248: case 260: return "🌫️"
+    case 176: case 263: case 353: return "🌦️"
+    case 179: case 227: case 230: case 323: case 326: case 368:
+    case 329: case 332: case 335: case 338: case 371: return "❄️"
+    case 182: case 185: case 281: case 284: case 311: case 314:
+    case 317: case 320: case 350: case 362: case 365: case 374: case 377:
+    case 266: case 293: case 296: case 299: case 302: case 305:
+    case 308: case 356: case 359: return "🌧️"
+    case 200: case 386: case 389: case 392: case 395: return "⛈️"
+    default: return "☁️"
+  }
+}
+
+function iconForCode(code, night, scheme) {
+  if (scheme === "emoji") return emojiForCode(code, night)
   var c = parseInt(String(code || "0"), 10)
   switch (c) {
     case 113: return night ? "" : ""
@@ -562,6 +585,7 @@ if (typeof module !== "undefined") {
     bmkgSlotIcon: bmkgSlotIcon,
     parseBmkgWarnings: parseBmkgWarnings,
     parseReportCache: parseReportCache,
+    emojiForCode: emojiForCode,
     currentIcon: currentIcon,
     provisionalCurrentIcon: provisionalCurrentIcon,
     weatherResponseCompletesSave: weatherResponseCompletesSave,

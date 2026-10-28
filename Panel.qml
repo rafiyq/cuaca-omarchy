@@ -153,7 +153,7 @@ Panel {
     if (String(cached.name) !== String(configuredLocationState.name)) return
     if (String(cached.latitude) !== String(configuredLocationState.latitude)) return
     if (String(cached.longitude) !== String(configuredLocationState.longitude)) return
-    var icon = Model.currentIcon({ bmkgWeatherCode: cacheState.weatherCode, isDay: cacheState.isDay }, "")
+    var icon = Model.currentIcon({ bmkgWeatherCode: cacheState.weatherCode, isDay: cacheState.isDay }, "", root.iconScheme)
     if (icon !== "") root.label = icon
   }
 
@@ -237,10 +237,22 @@ Panel {
   readonly property string reportLocation: (bmkgLocationInfo && bmkgLocationInfo.desa) ? String(bmkgLocationInfo.desa) : configuredLocation || (areaInfo && areaInfo.areaName && areaInfo.areaName[0] ? areaInfo.areaName[0].value : "")
   readonly property string reportTempNum:   current ? String(useImperial ? current.temp_F : current.temp_C) : ""
   readonly property string tempUnit:        "°" + (useImperial ? "F" : "C")
-  // BMKG's native Indonesian condition text ("Hujan Ringan", …). The
-  // fallback sources carry no equivalent string, so the read-out shows only
-  // on the cuaca path.
-  readonly property string reportCondition: current && current.bmkgCondition ? String(current.bmkgCondition) : ""
+  // Hand-editable widget settings (inline on the `{"id": "cuaca.weather"}`
+  // bar layout entry in ~/.config/omarchy/shell.json — the settings-form
+  // renderer is still shell-side). Condition language: BMKG's native
+  // wording is the default, "en" prefers the English alias the worker
+  // carries. Icon scheme: nerd-font glyphs are the default, "emoji" swaps
+  // the whole icon layer (pill, strip, forecast row) to emoji.
+  readonly property string conditionLang: String(setting("conditionLang", "id")).toLowerCase()
+  readonly property string iconScheme: String(setting("iconScheme", "nerd")).toLowerCase()
+  // BMKG condition text, honoring the language preference. The fallback
+  // sources carry no equivalent string, and a slot without the preferred
+  // alias falls back to the native wording rather than an empty row.
+  readonly property string reportCondition: (function() {
+    if (!current) return ""
+    if (conditionLang === "en" && current.bmkgConditionEn) return String(current.bmkgConditionEn)
+    return current.bmkgCondition ? String(current.bmkgCondition) : ""
+  })()
   readonly property string reportWind:      current ? (useImperial ? (current.windspeedMiles + " mph") : (current.windspeedKmph + " km/h")) : ""
   readonly property string reportHumidity:  current ? (current.humidity + "%") : ""
   // BMKG rain chance for the current slot; absent on the fallback path.
@@ -325,12 +337,11 @@ Panel {
       return
     }
     bmkgRetries++
-    bmkgRetryTimer.restart()
+    jitteredRestart(bmkgRetryTimer)
   }
 
   Timer {
     id: bmkgRetryTimer
-    interval: 2500
     onTriggered: root.refreshBmkg()
   }
 
@@ -519,23 +530,33 @@ Panel {
 
   // Representative icon for a forecast day: the hourly entry nearest noon.
   function dayIcon(day) {
-    return Model.dayIcon(day)
+    return Model.dayIcon(day, root.iconScheme)
   }
 
   // Strip icon for a raw cuaca slot: night decided by the slot's
   // location-local hour.
   function slotIcon(slot) {
-    return Model.bmkgSlotIcon(slot)
+    return Model.bmkgSlotIcon(slot, root.iconScheme)
   }
 
   function iconForOpenMeteoCode(code) {
-    return Model.iconForOpenMeteoCode(code)
+    return Model.iconForOpenMeteoCode(code, false, root.iconScheme)
   }
 
-  // Mirrors omarchy-weather-icon's wttr.in code → nerd-font glyph mapping.
+  // Mirrors omarchy-weather-icon's wttr.in code → nerd-font glyph mapping;
+  // iconScheme === "emoji" reroutes the whole layer to emoji instead.
   function iconForCode(code, night) {
-    return Model.iconForCode(code, night)
+    return Model.iconForCode(code, night, root.iconScheme)
   }
+
+  // Scheme settings land live: whatever condition the sources currently
+  // hold re-renders the pill without waiting for the next fetch.
+  function refreshLabelFromCurrent() {
+    if (!current) return
+    var icon = Model.currentIcon(current, "", root.iconScheme)
+    if (icon !== "") root.label = icon
+  }
+  onIconSchemeChanged: Qt.callLater(root.refreshLabelFromCurrent)
 
   Process {
     id: forecastProc
@@ -552,7 +573,7 @@ Panel {
           var parsed = JSON.parse(raw)
           root.report = parsed
           if (!root.hasConfiguredCoordinates)
-            root.label = Model.provisionalCurrentIcon(parsed.current_condition && parsed.current_condition[0], root.label)
+            root.label = Model.provisionalCurrentIcon(parsed.current_condition && parsed.current_condition[0], root.label, root.iconScheme)
           root.forecastRetries = 0
           if (Model.weatherResponseCompletesSave(root.usingCuaca, root.hasConfiguredCoordinates, "wttr"))
             root.finishSavingLocation()
@@ -573,12 +594,19 @@ Panel {
   function scheduleForecastRetry() {
     if (forecastRetries >= 3) return
     forecastRetries++
-    forecastRetryTimer.restart()
+    jitteredRestart(forecastRetryTimer)
+  }
+
+  // Retry base interval with ±25% jitter: after a suspend or network flap
+  // all three fetch paths recover at once, and fixed timers would slam the
+  // endpoints on the same beat every time.
+  function jitteredRestart(timer) {
+    timer.interval = 2500 + Math.round(2500 * (Math.random() * 0.5 - 0.25))
+    timer.restart()
   }
 
   Timer {
     id: forecastRetryTimer
-    interval: 2500
     onTriggered: if (!forecastProc.running) forecastProc.running = true
   }
 
@@ -588,12 +616,11 @@ Panel {
   function scheduleDailyForecastRetry() {
     if (dailyForecastRetries >= 3) return
     dailyForecastRetries++
-    dailyForecastRetryTimer.restart()
+    jitteredRestart(dailyForecastRetryTimer)
   }
 
   Timer {
     id: dailyForecastRetryTimer
-    interval: 2500
     onTriggered: root.refreshDailyForecast(null)
   }
 
@@ -636,7 +663,7 @@ Panel {
           if (!parsed || !parsed.forecast || !parsed.forecast.length) throw new Error("no forecast slots")
           if (parsed.location && parsed.location.adm4) root.resolvedAdm4 = String(parsed.location.adm4)
           root.bmkgReport = parsed
-          root.label = Model.currentIcon(Model.bmkgCurrentCondition(parsed), root.label)
+          root.label = Model.currentIcon(Model.bmkgCurrentCondition(parsed), root.label, root.iconScheme)
           root.writeReportCache()
           root.bmkgRetries = 0
           if (Model.weatherResponseCompletesSave(root.usingCuaca, root.hasConfiguredCoordinates, "bmkg"))
@@ -678,7 +705,7 @@ Panel {
           var parsed = JSON.parse(raw)
           var parsedCurrent = Model.openMeteoCurrentCondition(parsed)
           root.dailyForecastReport = parsed
-          root.label = Model.currentIcon(parsedCurrent, root.label)
+          root.label = Model.currentIcon(parsedCurrent, root.label, root.iconScheme)
           root.dailyForecastRetries = 0
           if (Model.weatherResponseCompletesSave(root.usingCuaca, root.hasConfiguredCoordinates, "open-meteo"))
             root.finishSavingLocation()

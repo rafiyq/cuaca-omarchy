@@ -156,6 +156,16 @@ check("parseReportCache: isDay default false", Model.parseReportCache('{"locatio
 check("parseReportCache: junk", Model.parseReportCache("<html>"), null)
 check("parseReportCache: unset", Model.parseReportCache(""), null)
 
+// ---- emoji icon scheme ----
+check("emojiForCode: clear day", Model.emojiForCode(113, false), "☀️")
+check("emojiForCode: clear night", Model.emojiForCode(113, true), "🌙")
+check("emojiForCode: thunder", Model.emojiForCode(389, false), "⛈️")
+check("emojiForCode: unknown → cloud", Model.emojiForCode(0, false), "☁️")
+check("iconForCode: emoji route", Model.iconForCode(113, false, "emoji"), Model.emojiForCode(113, false))
+check("iconForCode: default stays nerd-font", Model.iconForCode(113, false) === Model.iconForCode(113, true, "emoji"), false)
+check("currentIcon: forwards scheme", Model.currentIcon({ bmkgWeatherCode: 3, isDay: true }, "", "emoji"), Model.emojiForCode(119, false))
+check("currentIcon: default ignores scheme", Model.currentIcon({ bmkgWeatherCode: 3, isDay: true }, ""), Model.iconForCode(119, false))
+
 // ---- currentIcon bmkg branch ----
 const iconCode = Model.currentIcon(current, "")
 const expectedIcon = Model.iconForOpenMeteoCode(current.bmkgWeatherCode, !current.isDay)

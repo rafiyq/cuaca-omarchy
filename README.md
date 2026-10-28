@@ -90,11 +90,26 @@ plumbing in `Panel.qml`/`BarWidget.qml` (popout coordination, file watch,
 IPC) mirrors upstream `omarchy.weather` and should be re-diffed against it
 periodically.
 
+## Settings
+
+Tuned inline on the `cuaca.weather` bar layout entry in
+`~/.config/omarchy/shell.json` — the shell-side settings-form renderer isn't
+reachable from the plugin, so values are hand-edited for now; the manifest
+already declares the matching `schema` for whenever that renderer lands.
+
+```json
+{ "id": "cuaca.weather", "conditionLang": "en", "iconScheme": "emoji" }
+```
+
+- `conditionLang` — `id` (native BMKG wording, default) or `en` (the
+  English alias the worker carries, falling back to native when absent).
+- `iconScheme` — `nerd` (Nerd Font glyphs, default) or `emoji`, swapping
+  the pill, slot strip, and forecast row together; changes apply live
+  without waiting for the next fetch.
+
 ## Deferred ideas
 
-- Settings for condition language (native vs `conditionEn`) and icon scheme
-  (nerd-font glyphs vs emoji). The `settingsForm` renderer is shell-side and
-  not greppably accessible from the plugin; the meta object does carry an
-  unexplored `schema` field worth investigating for plugin-declared settings.
-- Syncing the wttr-based `omarchy-weather-status` system script (unset; the
-  right-click toast no longer depends on it).
+- A rendered settings form once the shell exposes one; `conditionLang` and
+  `iconScheme` are already schema-declared and functional via shell.json.
+- A user-level `omarchy-weather-status` shadow script dead-ended: PATH
+  resolves `/usr/share/omarchy/bin` ahead of `~/.local/bin`.

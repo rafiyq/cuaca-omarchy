@@ -56,6 +56,11 @@ BarWidget {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
+  // Active BMKG warnings surface as a small theme-urgent dot on the pill;
+  // the banner rows with the details live in the panel.
+  readonly property bool warningsActive: panelLoader.item
+    ? (panelLoader.item.bmkgWarnings && panelLoader.item.bmkgWarnings.length > 0) : false
+
   onBarChanged: injectPanel()
   onSettingsChanged: injectPanel()
 
@@ -85,5 +90,19 @@ BarWidget {
       else if (b === Qt.MiddleButton) root.refresh()
       else root.togglePanel()
     }
+  }
+
+  Rectangle {
+    visible: root.warningsActive
+    anchors.top: button.top
+    anchors.right: button.right
+    anchors.topMargin: Style.space(5)
+    anchors.rightMargin: Style.space(5)
+    width: 5
+    height: 5
+    radius: 2.5
+    color: Commons.Color.urgent
+    border.color: root.bar ? root.bar.background : "transparent"
+    border.width: 1
   }
 }

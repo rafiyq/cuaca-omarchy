@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "cuaca.weather",
   "name": "Cuaca Weather",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "rafiyq",
   "description": "BMKG weather pill with detail popup (cuaca.wilayah.workers.dev), worldwide fallback",
   "kinds": [
@@ -16,7 +16,29 @@
     "description": "BMKG weather pill with detail popup (cuaca.wilayah.workers.dev), worldwide fallback",
     "category": "Info",
     "allowMultiple": false,
-    "settingsForm": "weatherSettings"
+    "settingsForm": "weatherSettings",
+    "schema": [
+      {
+        "name": "conditionLang",
+        "label": "Condition language",
+        "type": "select",
+        "default": "id",
+        "options": [
+          { "value": "id", "label": "Bahasa Indonesia" },
+          { "value": "en", "label": "English" }
+        ]
+      },
+      {
+        "name": "iconScheme",
+        "label": "Icon set",
+        "type": "select",
+        "default": "nerd",
+        "options": [
+          { "value": "nerd", "label": "Nerd Font glyph" },
+          { "value": "emoji", "label": "Emoji" }
+        ]
+      }
+    ]
   },
   "omarchy": {
     "clonedFrom": "omarchy.weather"
