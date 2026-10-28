@@ -8,8 +8,8 @@ import "Model.js" as Model
 
 Panel {
   id: root
-  moduleName: "omarchy.weather"
-  ipcTarget: "omarchy.weather"
+  moduleName: "cuaca.weather"
+  ipcTarget: "cuaca.weather"
   manageIpc: false
 
   property var anchorItem: null
