@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "cuaca.weather",
   "name": "Cuaca Weather",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "author": "rafiyq",
   "description": "BMKG weather pill with detail popup (cuaca.wilayah.workers.dev), worldwide fallback",
   "kinds": [
@@ -21,6 +21,8 @@
       "conditionLang": "id",
       "iconScheme": "nerd",
       "unit": "auto",
+      "pillTemp": "on",
+      "colorMode": "mono",
       "refreshMinutes": 15
     },
     "schema": [
@@ -47,6 +49,22 @@
         "options": ["auto", "metric", "imperial"],
         "defaultValue": "auto",
         "description": "Metric or Fahrenheit; auto follows the forecast location's country first, then the system locale."
+      },
+      {
+        "key": "pillTemp",
+        "type": "enum",
+        "label": "Temperature in bar",
+        "options": ["on", "off"],
+        "defaultValue": "on",
+        "description": "Show the current temperature next to the pill icon in the bar."
+      },
+      {
+        "key": "colorMode",
+        "type": "enum",
+        "label": "Weather colors",
+        "options": ["mono", "color"],
+        "defaultValue": "mono",
+        "description": "Temperature and wind values tinted by weather (color) or the theme's monochrome siblings (mono)."
       },
       {
         "key": "refreshMinutes",

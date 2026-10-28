@@ -202,6 +202,25 @@ function bmkgTodaySlots(bmkgReport) {
   return out
 }
 
+// Slots for one calendar day of the cuaca series. The series starts
+// today, so its first date returns the remaining 3-hour blocks (the
+// strip's default view); any later date returns all of that day's
+// slots for the day-switchable strip. Unknown dates answer empty.
+function bmkgSlotsForDate(bmkgReport, dateString) {
+  var slots = bmkgReport && bmkgReport.forecast ? bmkgReport.forecast : []
+  if (!slots.length) return []
+
+  var wanted = String(dateString || "")
+  var seriesDate = String(slots[0].time || "").slice(0, 10)
+  if (wanted === "" || wanted === seriesDate) return bmkgTodaySlots(bmkgReport)
+
+  var out = []
+  for (var i = 0; i < slots.length; i++) {
+    if (String(slots[i].time || "").slice(0, 10) === wanted) out.push(slots[i])
+  }
+  return out
+}
+
 // Strip/hero icon for a raw slot: location-local hour decides night.
 function bmkgSlotIcon(slot, scheme) {
   return iconForOpenMeteoCode(normalizeBmkgCode(slot.weather), !slotIsDay(bmkgSlotHour(slot)), scheme)
@@ -380,6 +399,14 @@ function shouldUseImperial(unitOverride, localeName, countryName) {
   return localeUsesImperial(localeName)
 }
 
+// Indonesian weekday names for the forecast captions — a plain JS table
+// because Qt.formatDate's locale overload throws in the quickshell
+// runtime ("incompatible arguments"), which blanked whole sections.
+var ID_DAY_NAMES = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"]
+function indonesianDayName(date) {
+  return ID_DAY_NAMES[date.getDay()] || ""
+}
+
 function dayName(dateString, formatter) {
   if (!dateString) return ""
   var d = new Date(dateString + "T12:00:00")
@@ -483,6 +510,84 @@ function bareTempForDay(day, kind, useImperial) {
   return v + "°"
 }
 
+// Bare degree value for one slot-strip column; converts on the fly (slots
+// carry raw Celsius, unlike forecast days whose F fields are precomputed).
+function bareTempForSlot(slot, useImperial) {
+  if (!slot) return ""
+  var v = useImperial ? roundedTemp(celsiusToFahrenheit(slot.temp)) : roundedTemp(slot.temp)
+  return v === "" ? "" : v + "°"
+}
+
+// Rain-probability caption for a strip column: rounded percent, with a
+// wet flag for the accent tint at 60%+. Absent or invalid answers empty
+// text so the column simply skips the line.
+function slotRainProb(slot) {
+  var raw = slot ? slot.rainProb : undefined
+  var v = (raw === undefined || raw === null || raw === "") ? NaN : Number(raw)
+  if (isNaN(v)) return { text: "", wet: false }
+  var r = roundedTemp(v)
+  return { text: r + "%", wet: r >= 60 }
+}
+
+// Arrow for a reported wind direction: the worker sends 16-point
+// compass letters; the 8 Unicode arrows fold the in-between points
+// onto their nearest diagonal.
+var WIND_ARROWS = {
+  N: "\u2191", NNE: "\u2197", NE: "\u2197", ENE: "\u2192", E: "\u2192",
+  ESE: "\u2198", SE: "\u2198", S: "\u2193", SSW: "\u2199", SW: "\u2199",
+  WSW: "\u2190", W: "\u2190", WNW: "\u2196", NW: "\u2196", NNW: "\u2196"
+}
+function windArrow(dir) {
+  return WIND_ARROWS[String(dir || "").trim().toUpperCase()] || ""
+}
+
+// Temperature band color for color mode: the wttr.in rainbow, sampled
+// empirically from its terminal output (ANSI 256 converted to hex) —
+// 16 bands at ~3° per step covering -37..+37. The caller applies the
+// hex only when the colorMode setting opts in. Bands in Celsius — the
+// display value converts separately.
+function tempColor(celsius) {
+  var v = (celsius === undefined || celsius === null || celsius === "") ? NaN : Number(celsius)
+  if (isNaN(v)) return ""
+  if (v <= -16) return "#d75fff"
+  if (v <= -13) return "#5fd7ff"
+  if (v <= -3) return "#0087ff"
+  if (v <= -1) return "#00ffff"
+  if (v <= 1) return "#5fffaf"
+  if (v <= 3) return "#5fff5f"
+  if (v <= 6) return "#87ff00"
+  if (v <= 9) return "#afff00"
+  if (v <= 12) return "#d7ff00"
+  if (v <= 15) return "#ffff00"
+  if (v <= 19) return "#ffd700"
+  if (v <= 23) return "#ffaf00"
+  if (v <= 27) return "#ff8700"
+  if (v <= 31) return "#ff5f00"
+  return "#ff0000"
+}
+
+// Wind caption for a strip column: direction arrow + speed, no unit.
+// The arrow renders in the theme foreground; the speed carries the
+// wttr.in rainbow color (the same spectrum as temperatures, applied to
+// the displayed speed value) — the caller tints it only in color mode.
+// `strong` is the mono-mode accent rule at 25 km/h / 16 mph+. Absent or
+// invalid answers empty fields so the column skips the line.
+function slotWind(slot, useImperial) {
+  var raw = slot ? slot.windSpeed : undefined
+  var v = (raw === undefined || raw === null || raw === "") ? NaN : Number(raw)
+  if (isNaN(v)) return { text: "", arrow: "", speed: "", strong: false, color: "" }
+  var arrow = windArrow(slot && slot.windDir)
+  var r = roundedTemp(useImperial ? v * 0.621371 : v)
+  var speed = String(r)
+  return {
+    text: (arrow !== "" ? arrow + " " : "") + speed,
+    arrow: arrow,
+    speed: speed,
+    strong: r >= (useImperial ? 16 : 25),
+    color: tempColor(r)
+  }
+}
+
 function dayIcon(day, scheme) {
   if (!day) return ""
   if (day.bmkgWeatherCode !== undefined && day.bmkgWeatherCode !== null)
@@ -578,10 +683,12 @@ if (typeof module !== "undefined") {
     countryUsesImperial: countryUsesImperial,
     shouldUseImperial: shouldUseImperial,
     dayName: dayName,
+    indonesianDayName: indonesianDayName,
     todayInTimeZone: todayInTimeZone,
     openMeteoForecastDays: openMeteoForecastDays,
     openMeteoCurrentCondition: openMeteoCurrentCondition,
     bmkgTodaySlots: bmkgTodaySlots,
+    bmkgSlotsForDate: bmkgSlotsForDate,
     bmkgSlotIcon: bmkgSlotIcon,
     parseBmkgWarnings: parseBmkgWarnings,
     parseReportCache: parseReportCache,
@@ -592,6 +699,11 @@ if (typeof module !== "undefined") {
     wttrNextForecastDays: wttrNextForecastDays,
     buildForecastDays: buildForecastDays,
     bareTempForDay: bareTempForDay,
+    bareTempForSlot: bareTempForSlot,
+    slotRainProb: slotRainProb,
+    slotWind: slotWind,
+    tempColor: tempColor,
+    windArrow: windArrow,
     dayIcon: dayIcon,
     iconForOpenMeteoCode: iconForOpenMeteoCode,
     iconForCode: iconForCode

@@ -62,8 +62,16 @@ BarWidget {
   }
 
   visible: panelLoader.item && panelLoader.item.label !== ""
-  implicitWidth: button.implicitWidth
-  implicitHeight: button.implicitHeight
+  // The pill is the icon slot plus, once data lands and pillTemp is on, a
+  // compact temperature: beside the icon in horizontal bars, stacked under
+  // it in vertical ones.
+  readonly property bool tempShown: panelLoader.item ? panelLoader.item.pillTempText !== "" : false
+  implicitWidth: root.vertical
+    ? Math.max(button.implicitWidth, tempArea.visible ? tempArea.implicitWidth : 0)
+    : button.implicitWidth + (tempArea.visible ? Style.space(6) + tempArea.implicitWidth : 0)
+  implicitHeight: root.vertical
+    ? button.implicitHeight + (tempArea.visible ? Style.space(3) + tempArea.implicitHeight : 0)
+    : Math.max(button.implicitHeight, tempArea.visible ? tempArea.implicitHeight : 0)
 
   // Active BMKG warnings surface as a small theme-urgent dot on the pill;
   // the banner rows with the details live in the panel.
@@ -86,7 +94,11 @@ BarWidget {
 
   BarIconButton {
     id: button
-    anchors.fill: parent
+    // Anchored, not filled: with the temperature beside or under it the
+    // root is larger than the slot, and a fill would stretch the fixed
+    // glyph slot. x defaults to 0; horizontal mode is left-aligned at the
+    // root's edge.
+    anchors.horizontalCenter: root.vertical ? parent.horizontalCenter : undefined
     bar: root.bar
     text: panelLoader.item ? panelLoader.item.label : ""
     slotSize: Style.bar.statusSlot
@@ -98,6 +110,48 @@ BarWidget {
       if (b === Qt.RightButton) root.notifyStatus()
       else if (b === Qt.MiddleButton) root.refresh()
       else root.togglePanel()
+    }
+  }
+
+  // Pill temperature: a plain wrapper item sized from the text, with the
+  // MouseArea inside it. (The popup's location row taught the lesson: a
+  // positioner child rejects horizontal anchoring, but a plain Item takes
+  // it fine.) The area forwards the icon button's routing so the whole
+  // pill feels clickable.
+  Item {
+    id: tempArea
+    visible: root.tempShown
+    implicitWidth: tempText.implicitWidth
+    implicitHeight: tempText.implicitHeight
+    width: implicitWidth
+    height: implicitHeight
+
+    anchors.left: root.vertical ? undefined : button.right
+    anchors.leftMargin: Style.space(6)
+    anchors.verticalCenter: root.vertical ? undefined : button.verticalCenter
+    anchors.top: root.vertical ? button.bottom : undefined
+    anchors.topMargin: Style.space(3)
+    anchors.horizontalCenter: root.vertical ? button.horizontalCenter : undefined
+
+    Text {
+      id: tempText
+      anchors.fill: parent
+      textFormat: Text.PlainText
+      text: panelLoader.item ? panelLoader.item.pillTempText : ""
+      color: root.bar ? root.bar.foreground : "transparent"
+      font.family: root.bar ? root.bar.fontFamily : ""
+      font.pixelSize: Style.font.caption
+    }
+
+    MouseArea {
+      anchors.fill: parent
+      cursorShape: Qt.PointingHandCursor
+      onPressed: function(b) {
+        if (!root.bar) return
+        if (b === Qt.RightButton) root.notifyStatus()
+        else if (b === Qt.MiddleButton) root.refresh()
+        else root.togglePanel()
+      }
     }
   }
 

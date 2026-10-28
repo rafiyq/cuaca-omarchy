@@ -4,6 +4,71 @@ Release history for the `cuaca.weather` bar plugin (versions track the
 plugin's `manifest.json`). Built and released in one working session on
 2026-10-28; each section notes the release that introduced the change.
 
+## 1.4.0 — 2026-10-28
+
+### Added
+- The current temperature renders in the bar beside the pill icon
+  (stacked under it in vertical bars): integer-rounded, honoring the
+  `unit` setting, and empty until a session's first fetch lands so the
+  pill stays icon-only in the no-data window. The temp carries the
+  icon's click routing: left opens the popup, right toasts the
+  conditions, middle refreshes.
+- `pillTemp` setting (default `on`) as a fifth row in the gear modal;
+  `off` collapses the pill back to the icon alone.
+- README dev note: the shell's hot-reload journal line does not
+  reliably recompile the popup — restart the session before testing
+  Panel/BarWidget changes.
+
+### Changed
+- The BMKG condition text ("Hujan Ringan", …) moved from a stray line
+  below the hourly slot strip to under the hero icon, as a caption on
+  the big condition emoji. Fallback paths are unchanged: with no native
+  condition string the text simply stays hidden.
+- The hero's location line anchors to the top-right of the hero (8px
+  down) instead of centering vertically — with the caption making the
+  left block taller, the centered row read as floating mid-height.
+- The settings menu opens as a dropdown dropped from a fixed corner
+  gear instead of a centered modal: no scrim, ~300px card under the
+  gear at the popup's top-right, closed by outside click, outside
+  wheel, ESC, or a gear re-click. The reveal is a short slide-down
+  from the gear (150ms) and it slides back up as it fades out. The
+  five rows are unchanged; a card taller than the popup clamps and
+  scrolls its rows inside.
+- The gear moved out of the location row to that corner control — the
+  row is marker + name + pencil, still fully clickable to edit.
+- The forecast row is replaced by per-day hourly strips: tomorrow and
+  the day after each get a captioned 3-hourly strip (8 time/icon/temp
+  columns) under a caption carrying the day label, the localized day
+  name, and the hi/lo summary. Day names follow the `conditionLang`
+  setting (SELASA/RABU for `id` instead of the system-locale
+  TUESDAY/WEDNESDAY); the today slot strip is unchanged.
+- Rain probability in every strip column (today, tomorrow, day after): a
+  dimmed percent under the temp that takes the accent tint at 60%+.
+- Wind in every strip column: a dimmed direction arrow (theme
+  foreground) then the speed, tinted by the wttr.in rainbow in color
+  mode (no unit; the number honors the unit setting) — mono keeps the
+  dimmed/accent rule at 25 km/h / 16 mph+.
+- `colorMode` setting (`mono` default, `color`) as a sixth row in the
+  settings dropdown: `color` tints temperature values on the wttr.in
+  rainbow (empirically sampled from wttr.in's terminal output) and wind
+  speed values (blue-gray, vivid blue when strong); icons, condition
+  text, and rain % keep the theme coloring.
+
+### Fixed
+- `unit: auto` no longer falls through to the system locale on the cuaca
+  path: the BMKG source covers Indonesia only and its report carries no
+  country, so an en-US locale showed °F for an Indonesian village. Auto
+  now resolves metric there as soon as the village resolves; explicit
+  picks and the wttr/Open-Meteo path are unchanged.
+- Fixed a runtime TypeError ("incompatible arguments") from the locale
+  date-format overload that blanked the future-day strips and, in the
+  previous build, the forecast day names: Indonesian weekday names now
+  come from a plain table in Model.js.
+- Slot strip temps now honor the unit setting — they were permanently
+  Celsius (raw BMKG values) even with imperial selected, unlike the hero
+  and the forecast row. New `Model.bareTempForSlot` helper with offline
+  test coverage.
+
 ## 1.3.0 — 2026-10-28
 
 ### Added

@@ -92,6 +92,20 @@ check("bmkgTodaySlots: first is current slot", todaySlots[0].time, slot0.time)
 check("bmkgTodaySlots: none cross to tomorrow", todaySlots.every(s => s.time.slice(0, 10) === TODAY), true)
 check("bmkgTodaySlots: empty", Model.bmkgTodaySlots({ forecast: [] }), [])
 
+// ---- bmkgSlotsForDate ----
+const TOMORROW = bmkg.forecast.map(s => s.time.slice(0, 10)).find(d => d !== TODAY)
+const tomorrowCount = bmkg.forecast.filter(s => s.time.slice(0, 10) === TOMORROW).length
+const tomorrowSlots = Model.bmkgSlotsForDate(bmkg, TOMORROW)
+check("bmkgSlotsForDate: today defers to remaining", Model.bmkgSlotsForDate(bmkg, TODAY), todaySlots)
+check("bmkgSlotsForDate: empty date defers", Model.bmkgSlotsForDate(bmkg, ""), todaySlots)
+check("bmkgSlotsForDate: all of tomorrow", tomorrowSlots.length, tomorrowCount)
+check("bmkgSlotsForDate: every slot on the day", tomorrowSlots.every(s => s.time.slice(0, 10) === TOMORROW), true)
+check("bmkgSlotsForDate: unknown date empty", Model.bmkgSlotsForDate(bmkg, "1999-01-01"), [])
+
+// ---- indonesianDayName ----
+check("indonesianDayName: monday", Model.indonesianDayName(new Date("2026-11-02T12:00:00")), "Senin")
+check("indonesianDayName: sunday", Model.indonesianDayName(new Date("2026-11-01T12:00:00")), "Minggu")
+
 // ---- bmkgSlotIcon (night from location-local slot hour) ----
 const nightSlot = { time: "2026-10-28 22:00:00", weather: 1 }
 const daySlot = { time: "2026-10-28 10:00:00", weather: 1 }
@@ -184,6 +198,41 @@ check("openMeteoCurrentCondition intact", [omCur.temp_C, omCur.temp_F, omCur.hum
 check("dayName", Model.dayName("2026-10-28", d => d.getDay ? "ok" : "bad"), "ok")
 check("shouldUseImperial: override", [Model.shouldUseImperial("imperial", "id_ID", ""), Model.shouldUseImperial("metric", "en_US", "")], [true, false])
 check("shouldUseImperial: country", [Model.shouldUseImperial("", "", "United States"), Model.shouldUseImperial("", "", "Indonesia")], [true, false])
+check("bareTempForSlot: metric", [Model.bareTempForSlot({ temp: 28 }, false), Model.bareTempForSlot({ temp: 28.6 }, false)], ["28°", "29°"])
+check("bareTempForSlot: imperial", [Model.bareTempForSlot({ temp: 28 }, true), Model.bareTempForSlot({ temp: 28.6 }, true)], ["82°", "83°"])
+check("bareTempForSlot: empty-safe", [Model.bareTempForSlot(null, true), Model.bareTempForSlot({ temp: "" }, false)], ["", ""])
+
+// ---- slotRainProb ----
+check("slotRainProb: percent", Model.slotRainProb({ rainProb: 72 }), { text: "72%", wet: true })
+check("slotRainProb: wet threshold", [Model.slotRainProb({ rainProb: 60 }).wet, Model.slotRainProb({ rainProb: 59 }).wet], [true, false])
+check("slotRainProb: rounds", Model.slotRainProb({ rainProb: 40.4 }), { text: "40%", wet: false })
+check("slotRainProb: absent-safe", [Model.slotRainProb(null), Model.slotRainProb({}), Model.slotRainProb({ rainProb: null })], [{ text: "", wet: false }, { text: "", wet: false }, { text: "", wet: false }])
+
+// ---- slotWind ----
+check("slotWind: arrow then speed", Model.slotWind({ windSpeed: 12, windDir: "N" }, false), { text: "\u2191 12", arrow: "\u2191", speed: "12", strong: false, color: "#d7ff00" })
+check("slotWind: imperial", [Model.slotWind({ windSpeed: 24, windDir: "NE" }, true), Model.slotWind({ windSpeed: 32, windDir: "S" }, true)], [{ text: "\u2197 15", arrow: "\u2197", speed: "15", strong: false, color: "#ffff00" }, { text: "\u2193 20", arrow: "\u2193", speed: "20", strong: true, color: "#ffaf00" }])
+check("slotWind: strong threshold", [Model.slotWind({ windSpeed: 25, windDir: "E" }, false).strong, Model.slotWind({ windSpeed: 24.4, windDir: "E" }, false).strong], [true, false])
+check("slotWind: no direction", Model.slotWind({ windSpeed: 12 }, false), { text: "12", arrow: "", speed: "12", strong: false, color: "#d7ff00" })
+check("slotWind: unknown direction", Model.slotWind({ windSpeed: 9, windDir: "XYZ" }, false), { text: "9", arrow: "", speed: "9", strong: false, color: "#afff00" })
+check("slotWind: absent-safe", [Model.slotWind(null, false), Model.slotWind({ windDir: "N" }, false)], [{ text: "", arrow: "", speed: "", strong: false, color: "" }, { text: "", arrow: "", speed: "", strong: false, color: "" }])
+check("slotWind: color by strength", [Model.slotWind({ windSpeed: 12, windDir: "N" }, false).color, Model.slotWind({ windSpeed: 30, windDir: "N" }, false).color], ["#d7ff00", "#ff5f00"])
+
+// ---- tempColor ----
+check("tempColor: wttr bands cold", [Model.tempColor(-20), Model.tempColor(-16), Model.tempColor(-15), Model.tempColor(-13), Model.tempColor(-12), Model.tempColor(-3), Model.tempColor(-2)],
+      ["#d75fff", "#d75fff", "#5fd7ff", "#5fd7ff", "#0087ff", "#0087ff", "#00ffff"])
+check("tempColor: wttr bands mid", [Model.tempColor(-1), Model.tempColor(0), Model.tempColor(1), Model.tempColor(2), Model.tempColor(3), Model.tempColor(4), Model.tempColor(6), Model.tempColor(7)],
+      ["#00ffff", "#5fffaf", "#5fffaf", "#5fff5f", "#5fff5f", "#87ff00", "#87ff00", "#afff00"])
+check("tempColor: wttr bands warm", [Model.tempColor(9), Model.tempColor(10), Model.tempColor(12), Model.tempColor(13), Model.tempColor(15), Model.tempColor(16), Model.tempColor(19), Model.tempColor(20)],
+      ["#afff00", "#d7ff00", "#d7ff00", "#ffff00", "#ffff00", "#ffd700", "#ffd700", "#ffaf00"])
+check("tempColor: wttr bands hot", [Model.tempColor(23), Model.tempColor(24), Model.tempColor(27), Model.tempColor(28), Model.tempColor(31), Model.tempColor(32), Model.tempColor(37)],
+      ["#ffaf00", "#ff8700", "#ff8700", "#ff5f00", "#ff5f00", "#ff0000", "#ff0000"])
+check("tempColor: absent", [Model.tempColor(null), Model.tempColor("")], ["", ""])
+
+// ---- windArrow ----
+check("windArrow: cardinal", Model.windArrow("N"), "\u2191")
+check("windArrow: diagonal fold", [Model.windArrow("NNE"), Model.windArrow("NNW")], ["\u2197", "\u2196"])
+check("windArrow: case and space", Model.windArrow("  ne "), "\u2197")
+check("windArrow: unknown", Model.windArrow("XYZ"), "")
 
 // ---- locationCommit with cuaca rows ----
 const committed = Model.locationCommit("Kemayoran", resolveRows, 0)

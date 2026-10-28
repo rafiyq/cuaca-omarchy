@@ -30,8 +30,11 @@ the wttr/Open-Meteo path instead of blanking out.
 
 - Hero: day/night icon, temperature, wind, humidity, rain chance, BMKG's
   native Indonesian condition text (`Hujan Ringan`, …)
-- Slot strip: today's remaining 3-hourly slots (time / icon / temp)
-- Forecast row: daily hi/lo with each day's icon from the slot nearest noon
+- Slot strip: today's remaining 3-hourly slots (time / icon / temp / rain %
+  / wind)
+- Future-day strips: tomorrow and the day after, one captioned 3-hourly
+  strip each — day label + name + hi/lo over 8
+  time/icon/temp/rain-%/wind columns
 - Warning banners above the hero when BMKG publishes CAP warnings
 
 The FEELS read-out from the upstream panel is gone: BMKG publishes no
@@ -45,6 +48,10 @@ feels-like temperature.
   script; "Weather unavailable" before the first response)
 - Click the location label — edit; village search via `/api/resolve` first,
   Open-Meteo worldwide geocoder on a miss
+- The bar pill shows the current temperature beside the icon once data
+  lands (stacked under it in vertical bars), rounded to an integer and
+  honoring the unit setting; `pillTemp: off` collapses the pill back to
+  the icon. The temp answers to the same three clicks as the icon.
 
 ## IPC
 
@@ -89,6 +96,12 @@ and unloads the whole plugin at rescan). Signs of a rejected manifest:
 the widget vanishes from the bar and
 `PluginRegistry: invalid ...` lines in `journalctl --user`.
 
+One more workflow note: the shell's `Local plugin changed, reloading`
+journal line does not reliably recompile the popup component. After
+editing `Panel.qml` or `BarWidget.qml`, restart the shell session before
+testing — stale QML warnings citing line numbers that no longer exist in
+the edited file are the tell that you are looking at old bytes.
+
 ## Settings
 
 Stored inline on the `cuaca.weather` bar layout entry in
@@ -98,11 +111,12 @@ Stored inline on the `cuaca.weather` bar layout entry in
 omarchy bar set cuaca.weather conditionLang en     # id | en
 omarchy bar set cuaca.weather iconScheme emoji     # nerd | emoji
 omarchy bar set cuaca.weather unit auto            # auto | metric | imperial
+omarchy bar set cuaca.weather pillTemp on          # on | off
 omarchy bar set cuaca.weather refreshMinutes 30 --json
 ```
 
 or hand-edit the entry (`{ "id": "cuaca.weather", "conditionLang": "en",
-"iconScheme": "emoji" }`). The manifest declares the same four keys in the
+"iconScheme": "emoji" }`). The manifest declares the same five keys in the
 canonical Omarchy `schema` shape (with a matching `defaults` map), and the
 popup carries the controls too, tucked behind a modal: the gear glyph
 beside the location label raises a settings card whose rows are rendered
@@ -111,13 +125,23 @@ writes the exact same entry keys the CLI does. The CLI is unchanged and
 still works headless.
 
 - `conditionLang` — `id` (native BMKG wording, default) or `en` (the
-  English alias the worker carries, falling back to native when absent).
+  English alias the worker carries, falling back to native when absent);
+  also picks the forecast day names (SELASA/RABU vs TUESDAY/WEDNESDAY).
 - `iconScheme` — `nerd` (Nerd Font glyphs, default) or `emoji`, swapping
   the pill, slot strip, and forecast row together; changes apply live
   without waiting for the next fetch.
 - `unit` — `auto`, `metric`, or `imperial` (`auto` is the default: the
   forecast location's country first, then the system locale; US, Liberia,
-  Myanmar and en-US/en-LR/my locales get Fahrenheit).
+  Myanmar and en-US/en-LR/my locales get Fahrenheit). The cuaca/BMKG path
+  carries no country in its report, so auto treats it as Indonesia
+  (metric) once the village resolves.
+- `pillTemp` — `on` (default) or `off`; hides the bar-side temperature and
+  collapses the pill back to the icon alone.
+- `colorMode` — `mono` (default) or `color`; `color` tints the temperature
+  values on the wttr.in rainbow (magenta → azure → cyan → green → yellow
+  → orange → red, ~3° per band from -37 to +37) and the wind speed
+  values (blue-gray, vivid blue when strong at 25 km/h / 16 mph+).
+  Icons, condition text, and rain % keep the theme coloring.
 - `refreshMinutes` — auto-refresh interval, default 15, clamped to a
   minimum of 1.
 
