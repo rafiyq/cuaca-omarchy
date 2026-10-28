@@ -37,14 +37,6 @@ the wttr/Open-Meteo path instead of blanking out.
 The FEELS read-out from the upstream panel is gone: BMKG publishes no
 feels-like temperature.
 
-## Settings
-
-In the widget settings (`weatherSettings` form):
-
-- `unit` — `metric` / `imperial`. Auto-detected otherwise (wttr country, then
-  locale). BMKG reports °C/km/h; imperial is converted client-side.
-- `refreshMinutes` — poll interval, minimum 1.
-
 ## Interaction
 
 - Left-click — toggle popup
@@ -89,6 +81,13 @@ and re-run. Commits favor separate fetch-layer vs UI changes; the shell
 plumbing in `Panel.qml`/`BarWidget.qml` (popout coordination, file watch,
 IPC) mirrors upstream `omarchy.weather` and should be re-diffed against it
 periodically.
+
+Manifest vocabulary must be valid in the *installed* omarchy version, not
+just the upstream docs: newer references document fields the current shell
+rejects outright (4.0.6 refuses `barWidget.defaultSection: "centerEnd"`
+and unloads the whole plugin at rescan). Signs of a rejected manifest:
+the widget vanishes from the bar and
+`PluginRegistry: invalid ...` lines in `journalctl --user`.
 
 ## Settings
 

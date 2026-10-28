@@ -4,6 +4,23 @@ Release history for the `cuaca.weather` bar plugin (versions track the
 plugin's `manifest.json`). Built and released in one working session on
 2026-10-28; each section notes the release that introduced the change.
 
+## 1.2.2 — 2026-10-28
+
+### Fixed
+- Removed `barWidget.defaultSection` from the manifest: the installed
+  omarchy 4.0.6 shell validates it against its own section vocabulary,
+  where `centerEnd` (documented in the newer upstream reference) does not
+  exist — the whole manifest was rejected at rescan and the widget
+  disappeared from the bar. Schema, defaults, and settingsForm stay;
+  they are not validated and remain forward-compatible.
+- Warnings pill dot: `BarWidget.qml` imported `qs.Commons` without the
+  `as Commons` alias the Qt 6.12 shell convention requires, so the dot's
+  color binding threw `Commons is not defined` at runtime; the aliased
+  import was added (matching Panel.qml and first-party widgets).
+- README dev section now warns that manifest vocabulary must match the
+  installed shell, with the journal warning as the tell; the older
+  duplicate Settings section was removed in favor of the canonical one.
+
 ## 1.2.1 — 2026-10-28
 
 ### Fixed

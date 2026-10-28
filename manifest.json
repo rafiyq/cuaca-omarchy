@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "cuaca.weather",
   "name": "Cuaca Weather",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "author": "rafiyq",
   "description": "BMKG weather pill with detail popup (cuaca.wilayah.workers.dev), worldwide fallback",
   "kinds": [
@@ -16,7 +16,6 @@
     "description": "BMKG weather pill with detail popup (cuaca.wilayah.workers.dev), worldwide fallback",
     "category": "Info",
     "allowMultiple": false,
-    "defaultSection": "centerEnd",
     "settingsForm": "weatherSettings",
     "defaults": {
       "conditionLang": "id",
