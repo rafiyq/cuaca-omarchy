@@ -19,6 +19,12 @@ BarWidget {
     if (panelLoader.item && panelLoader.item.refresh) panelLoader.item.refresh()
   }
 
+  // Toast the panel's live conditions; falls back to the generic message
+  // the panel renders when nothing has loaded yet.
+  function notifyStatus() {
+    if (panelLoader.item && panelLoader.item.notifyStatus) panelLoader.item.notifyStatus()
+  }
+
   function togglePanel() {
     if (panelLoader.item && panelLoader.item.toggle) panelLoader.item.toggle()
   }
@@ -75,7 +81,7 @@ BarWidget {
 
     onPressed: function(b) {
       if (!root.bar) return
-      if (b === Qt.RightButton) root.bar.run("omarchy-notification-send \"$(omarchy-weather-status)\"")
+      if (b === Qt.RightButton) root.notifyStatus()
       else if (b === Qt.MiddleButton) root.refresh()
       else root.togglePanel()
     }

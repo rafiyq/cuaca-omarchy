@@ -81,6 +81,7 @@ Panel {
   property var bmkgReport: null
   property string resolvedAdm4: ""
   property bool usingCuaca: false
+  property var bmkgWarnings: []
 
   // Configured location, read from the weather.json state file (owned by
   // omarchy-weather-location). The query is the wttr.in path segment
@@ -108,6 +109,7 @@ Panel {
     resolvedAdm4 = ""
     usingCuaca = false
     bmkgReport = null
+    bmkgWarnings = []
     Qt.callLater(refresh)
   }
 
@@ -156,6 +158,8 @@ Panel {
   readonly property var current: (usingCuaca && bmkgCurrent) ? bmkgCurrent : (hasConfiguredCoordinates && openMeteoCurrent) ? openMeteoCurrent : ((report && report.current_condition && report.current_condition[0]) ? report.current_condition[0] : openMeteoCurrent)
   readonly property var areaInfo: report && report.nearest_area && report.nearest_area[0] ? report.nearest_area[0] : null
   readonly property var forecastDays: buildForecastDays()
+  // Remaining slots for today on the cuaca path (current block onward).
+  readonly property var todaySlots: Model.bmkgTodaySlots(bmkgReport)
   readonly property string reportCountry: areaInfo && areaInfo.country && areaInfo.country[0] ? areaInfo.country[0].value : ""
 
   readonly property bool useImperial: Model.shouldUseImperial(setting("unit", ""), Qt.locale().name, reportCountry)
@@ -175,6 +179,8 @@ Panel {
   readonly property string reportCondition: current && current.bmkgCondition ? String(current.bmkgCondition) : ""
   readonly property string reportWind:      current ? (useImperial ? (current.windspeedMiles + " mph") : (current.windspeedKmph + " km/h")) : ""
   readonly property string reportHumidity:  current ? (current.humidity + "%") : ""
+  // BMKG rain chance for the current slot; absent on the fallback path.
+  readonly property string reportRain:      current && current.rainProb !== undefined && current.rainProb !== null ? (current.rainProb + "%") : ""
 
   function refresh() {
     // Each full refresh cycle gets a fresh retry budget, so an earlier
@@ -226,6 +232,16 @@ Panel {
     bmkgForecastProc.running = true
   }
 
+  // Warnings piggyback on the forecast: fetched only after a successful
+  // forecast response pins the village. No retry budget — the endpoint is
+  // edge-cached 15 min and the next refresh cycle picks it up again.
+  function fetchBmkgWarnings() {
+    if (resolvedAdm4 === "" || !usingCuaca || bmkgWarningProc.running) return
+    bmkgWarningProc.command = ["curl", "-fsS", "--max-time", "5",
+      "https://cuaca.wilayah.workers.dev/api/warnings?adm4=" + encodeURIComponent(resolvedAdm4)]
+    bmkgWarningProc.running = true
+  }
+
   function startFallbackRefresh() {
     if (!forecastProc.running) forecastProc.running = true
     // With stored coordinates this fetches open-meteo right away — no need
@@ -235,9 +251,15 @@ Panel {
   }
 
   // cuaca can be slow when a forecast isn't edge-cached yet. Retry a few
-  // times before leaving it to the refresh timer.
+  // times before falling the location over to wttr/Open-Meteo rather than
+  // blanking the popup until the next refresh epoch.
   function scheduleBmkgRetry() {
-    if (bmkgRetries >= 3) return
+    if (bmkgRetries >= 3) {
+      resolvedAdm4 = ""
+      usingCuaca = false
+      startFallbackRefresh()
+      return
+    }
     bmkgRetries++
     bmkgRetryTimer.restart()
   }
@@ -334,6 +356,28 @@ Panel {
     if (savingLocation && savingLocationQueryStarted) cancelEditingLocation()
   }
 
+  // Right-click / `status` IPC: toast the current conditions from live
+  // in-memory data — no system script, works on every path, and reflects
+  // whatever the panel is actually showing. Shell-metacharacters are
+  // stripped because bar.run hands the string to a shell.
+  function notifyStatus() {
+    if (!root.bar) return
+    var sanitize = function(str) {
+      return String(str || "").replace(/[$`"\\\n]/g, "")
+    }
+    var place = sanitize(reportLocation)
+    if (place === "" && !current) {
+      root.bar.run("omarchy-notification-send \"Weather unavailable\"")
+      return
+    }
+    var parts = [place !== "" ? place : "Weather"]
+    if (reportTempNum !== "") parts.push("Temp " + sanitize(reportTempNum) + sanitize(tempUnit))
+    if (reportWind !== "") parts.push("Wind " + sanitize(reportWind))
+    if (reportHumidity !== "") parts.push("Humid " + sanitize(reportHumidity))
+    if (reportCondition !== "") parts.push(sanitize(reportCondition))
+    root.bar.run("omarchy-notification-send \"" + parts.join("  ·  ") + "\"")
+  }
+
   function persistLocation(name, latitude, longitude) {
     if (name && latitude !== null && longitude !== null)
       locationSaveProc.command = ["omarchy-weather-location", "--set", name, latitude + "," + longitude]
@@ -412,6 +456,12 @@ Panel {
   // Representative icon for a forecast day: the hourly entry nearest noon.
   function dayIcon(day) {
     return Model.dayIcon(day)
+  }
+
+  // Strip icon for a raw cuaca slot: night decided by the slot's
+  // location-local hour.
+  function slotIcon(slot) {
+    return Model.bmkgSlotIcon(slot)
   }
 
   function iconForOpenMeteoCode(code) {
@@ -526,10 +576,25 @@ Panel {
           root.bmkgRetries = 0
           if (Model.weatherResponseCompletesSave(root.usingCuaca, root.hasConfiguredCoordinates, "bmkg"))
             root.finishSavingLocation()
+          root.fetchBmkgWarnings()
         } catch (e) {
           // Keep last-good BMKG report visible, but try again shortly.
           root.scheduleBmkgRetry()
         }
+      }
+    }
+  }
+
+  Process {
+    id: bmkgWarningProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        // A dropped response (curl -f yields no output) keeps the previous
+        // warnings visible instead of pretending all-clear; a parsed
+        // success replaces the list, including the all-clear case.
+        if (String(text || "").trim() === "") return
+        root.bmkgWarnings = Model.parseBmkgWarnings(text)
       }
     }
   }
@@ -636,6 +701,7 @@ Panel {
     function hide(): void { root.close() }
     function toggle(): void { root.toggle() }
     function edit(): void { root.openFromHotkey(); root.startEditingLocation() }
+    function status(): void { root.notifyStatus() }
   }
 
   KeyboardPanel {
@@ -670,6 +736,89 @@ Panel {
           id: weatherColumn
           width: weatherScroll.width
           spacing: Style.space(14)
+
+      // ---- BMKG warnings (cuaca path only, sourced from /api/warnings).
+      //      Severity coloring stays theme-agnostic: sibling tones of the
+      //      bar foreground rather than fixed palette colors.
+      Column {
+        visible: root.bmkgWarnings.length > 0
+        width: parent.width
+        spacing: Style.space(6)
+
+        Repeater {
+          model: root.bmkgWarnings
+
+          Rectangle {
+            required property var modelData
+            width: parent.width
+            radius: Style.cornerRadius
+            color: Style.hoverFillFor(root.bar.foreground, Commons.Color.accent)
+            height: warningBody.implicitHeight + Style.space(20)
+
+            Column {
+              id: warningBody
+              anchors.fill: parent
+              anchors.leftMargin: Style.space(14)
+              anchors.rightMargin: Style.space(14)
+              anchors.topMargin: Style.space(10)
+              anchors.bottomMargin: Style.space(10)
+
+              Row {
+                spacing: Style.space(6)
+
+                Text {
+                  text: "⚠"
+                  anchors.verticalCenter: parent.verticalCenter
+                  color: root.bar.foreground
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.body
+                  font.bold: true
+                }
+                Text {
+                  textFormat: Text.PlainText
+                  visible: modelData.event !== ""
+                  text: modelData.event
+                  anchors.verticalCenter: parent.verticalCenter
+                  color: root.bar.foreground
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.body
+                  font.bold: true
+                }
+                Text {
+                  textFormat: Text.PlainText
+                  visible: modelData.severity !== ""
+                  text: modelData.severity.toUpperCase()
+                  anchors.verticalCenter: parent.verticalCenter
+                  color: Qt.darker(root.bar.foreground, 1.3)
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.letterSpacing: 1
+                }
+              }
+
+              Text {
+                textFormat: Text.PlainText
+                visible: modelData.area !== ""
+                text: modelData.area
+                color: Qt.darker(root.bar.foreground, 1.4)
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.bodySmall
+              }
+
+              Text {
+                textFormat: Text.PlainText
+                visible: modelData.description !== ""
+                text: modelData.description
+                color: root.bar.foreground
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                width: parent.width
+                wrapMode: Text.WordWrap
+              }
+            }
+          }
+        }
+      }
 
       // ---- Hero row: big icon + temp on the left; location and stats stacked on the right.
       Item {
@@ -866,6 +1015,77 @@ Panel {
                 color: root.bar.foreground
                 font.family: root.bar.fontFamily
                 font.pixelSize: Style.font.title
+              }
+            }
+
+            // BMKG rain chance; hidden on the fallback path, which has no
+            // equivalent number.
+            Column {
+              visible: root.reportRain !== ""
+              spacing: Style.space(5)
+              Text {
+                text: "RAIN"
+                color: Qt.darker(root.bar.foreground, 1.5)
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                font.letterSpacing: 1
+              }
+              Text {
+                textFormat: Text.PlainText
+                text: root.reportRain
+                color: root.bar.foreground
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.title
+              }
+            }
+          }
+        }
+      }
+
+      // ---- Slot strip: today's remaining slots (cuaca path), time /
+      //      read left to right from the current 3-hour block.
+      Item {
+        visible: root.usingCuaca && root.todaySlots.length > 0
+        width: parent.width
+        height: todayRow.height
+
+        Row {
+          id: todayRow
+          anchors.horizontalCenter: parent.horizontalCenter
+          spacing: Style.space(18)
+
+          Repeater {
+            model: root.todaySlots
+
+            Column {
+              required property var modelData
+              spacing: Style.space(3)
+
+              Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                textFormat: Text.PlainText
+                // Slot time is location-local; "HH:MM" drops the seconds.
+                text: String(modelData.time || "").slice(11, 16)
+                color: Qt.darker(root.bar.foreground, 1.4)
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.caption
+                font.letterSpacing: 1
+              }
+              Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                textFormat: Text.PlainText
+                text: root.slotIcon(modelData)
+                color: root.bar.foreground
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.display
+              }
+              Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                textFormat: Text.PlainText
+                text: root.roundedTemp(modelData.temp) + "°"
+                color: root.bar.foreground
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.body
               }
             }
           }

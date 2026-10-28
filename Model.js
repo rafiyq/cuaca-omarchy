@@ -124,6 +124,7 @@ function bmkgCurrentCondition(bmkgReport) {
     windspeedKmph: roundedTemp(slot.windSpeed),
     windspeedMiles: roundedTemp(parseFloat(String(slot.windSpeed)) * 0.621371),
     humidity: roundedTemp(slot.humidity),
+    rainProb: roundedTemp(slot.rainProb),
     bmkgWeatherCode: normalizeBmkgCode(slot.weather),
     bmkgCondition: typeof slot.condition === "string" ? slot.condition : "",
     bmkgConditionEn: typeof slot.conditionEn === "string" ? slot.conditionEn : "",
@@ -183,6 +184,66 @@ function bmkgForecastDays(bmkgReport, todayString) {
     })
   }
   return result
+}
+
+// Remaining slots for the day the series starts on (the current 3-hour
+// block onward). The slot strip only ever needs today; future days live in
+// the forecast row.
+function bmkgTodaySlots(bmkgReport) {
+  var slots = bmkgReport && bmkgReport.forecast ? bmkgReport.forecast : []
+  if (!slots.length) return []
+
+  var today = String(slots[0].time || "").slice(0, 10)
+  var out = []
+  for (var i = 0; i < slots.length; i++) {
+    if (String(slots[i].time || "").slice(0, 10) !== today) break
+    out.push(slots[i])
+  }
+  return out
+}
+
+// Strip/hero icon for a raw slot: location-local hour decides night.
+function bmkgSlotIcon(slot) {
+  return iconForOpenMeteoCode(normalizeBmkgCode(slot.weather), !slotIsDay(bmkgSlotHour(slot)))
+}
+
+// BMKG warning rows (CAP parsed at the worker). The endpoint answers empty
+// between events, and event payloads come in richer and leaner variants
+// depending on data availability, so every key is tolerated. Only rows that
+// carry something to show are kept.
+function parseBmkgWarnings(raw) {
+  try {
+    var data = JSON.parse(String(raw || "{}"))
+    var list = data.warnings
+    if (!list || !list.length) return []
+
+    var out = []
+    for (var i = 0; i < list.length; i++) {
+      var r = list[i]
+      if (!r || typeof r !== "object") continue
+      var row = {
+        event: firstString(r.event, r.headline, r.title),
+        severity: firstString(r.severity, r.level),
+        area: firstString(r.area, r.areaDesc),
+        onset: firstString(r.onset, r.time, r.effective),
+        description: firstString(r.description, r.desc)
+      }
+      if (row.event === "" && row.description === "" && row.area === "") continue
+      out.push(row)
+    }
+    return out
+  } catch (e) {
+    return []
+  }
+}
+
+function firstString() {
+  for (var i = 0; i < arguments.length; i++) {
+    var v = arguments[i]
+    if (typeof v === "string" && v !== "") return v
+    if (typeof v === "number") return String(v)
+  }
+  return ""
 }
 
 // Open-Meteo geocoding response → suggestion rows for the location picker.
@@ -452,6 +513,9 @@ if (typeof module !== "undefined") {
     dayName: dayName,
     openMeteoForecastDays: openMeteoForecastDays,
     openMeteoCurrentCondition: openMeteoCurrentCondition,
+    bmkgTodaySlots: bmkgTodaySlots,
+    bmkgSlotIcon: bmkgSlotIcon,
+    parseBmkgWarnings: parseBmkgWarnings,
     currentIcon: currentIcon,
     provisionalCurrentIcon: provisionalCurrentIcon,
     weatherResponseCompletesSave: weatherResponseCompletesSave,
