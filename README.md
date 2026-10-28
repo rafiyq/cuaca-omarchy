@@ -92,21 +92,27 @@ periodically.
 
 ## Settings
 
-Tuned inline on the `cuaca.weather` bar layout entry in
-`~/.config/omarchy/shell.json` — the shell-side settings-form renderer isn't
-reachable from the plugin, so values are hand-edited for now; the manifest
-already declares the matching `schema` for whenever that renderer lands.
+Stored inline on the `cuaca.weather` bar layout entry in
+`~/.config/omarchy/shell.json`. Set them with the shell's own CLI:
 
-```json
-{ "id": "cuaca.weather", "conditionLang": "en", "iconScheme": "emoji" }
+```bash
+omarchy bar set cuaca.weather conditionLang en     # id | en
+omarchy bar set cuaca.weather iconScheme emoji     # nerd | emoji
+omarchy bar set cuaca.weather unit auto            # auto | metric | imperial
+omarchy bar set cuaca.weather refreshMinutes 30 --json
 ```
+
+or hand-edit the entry (`{ "id": "cuaca.weather", "conditionLang": "en",
+"iconScheme": "emoji" }`). The manifest declares the same four keys in the
+canonical Omarchy `schema` shape (with a matching `defaults` map), so a
+future shell settings form renders them without rework.
 
 - `conditionLang` — `id` (native BMKG wording, default) or `en` (the
   English alias the worker carries, falling back to native when absent).
 - `iconScheme` — `nerd` (Nerd Font glyphs, default) or `emoji`, swapping
   the pill, slot strip, and forecast row together; changes apply live
   without waiting for the next fetch.
-- `unit` — `metric`, `imperial`, or unset for auto-detection (the
+- `unit` — `auto`, `metric`, or `imperial` (`auto` is the default: the
   forecast location's country first, then the system locale; US, Liberia,
   Myanmar and en-US/en-LR/my locales get Fahrenheit).
 - `refreshMinutes` — auto-refresh interval, default 15, clamped to a

@@ -4,6 +4,19 @@ Release history for the `cuaca.weather` bar plugin (versions track the
 plugin's `manifest.json`). Built and released in one working session on
 2026-10-28; each section notes the release that introduced the change.
 
+## 1.2.1 — 2026-10-28
+
+### Fixed
+- Manifest `schema` recast to the canonical Omarchy shape: fields key on
+  `key` instead of `name`, `enum`/`integer` types instead of the guessed
+  `select`/`number`, plain-string option arrays, and `defaultValue`
+  instead of `default`. Added the documented `defaults` map and an
+  explicit `defaultSection`, so a future shell settings form renders the
+  widget's options without lossy guessing.
+- README documents `omarchy bar set` as the settings path (the shell's
+  own CLI writes the widget's inline shell.json entry), with hand-editing
+  as the fallback.
+
 ## 1.2.0 — 2026-10-28
 
 ### Added

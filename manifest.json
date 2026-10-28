@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "cuaca.weather",
   "name": "Cuaca Weather",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "author": "rafiyq",
   "description": "BMKG weather pill with detail popup (cuaca.wilayah.workers.dev), worldwide fallback",
   "kinds": [
@@ -16,45 +16,48 @@
     "description": "BMKG weather pill with detail popup (cuaca.wilayah.workers.dev), worldwide fallback",
     "category": "Info",
     "allowMultiple": false,
+    "defaultSection": "centerEnd",
     "settingsForm": "weatherSettings",
+    "defaults": {
+      "conditionLang": "id",
+      "iconScheme": "nerd",
+      "unit": "auto",
+      "refreshMinutes": 15
+    },
     "schema": [
       {
-        "name": "conditionLang",
+        "key": "conditionLang",
+        "type": "enum",
         "label": "Condition language",
-        "type": "select",
-        "default": "id",
-        "options": [
-          { "value": "id", "label": "Bahasa Indonesia" },
-          { "value": "en", "label": "English" }
-        ]
+        "options": ["id", "en"],
+        "defaultValue": "id",
+        "description": "BMKG condition wording: native Indonesian (id) or the English alias (en)."
       },
       {
-        "name": "iconScheme",
+        "key": "iconScheme",
+        "type": "enum",
         "label": "Icon set",
-        "type": "select",
-        "default": "nerd",
-        "options": [
-          { "value": "nerd", "label": "Nerd Font glyph" },
-          { "value": "emoji", "label": "Emoji" }
-        ]
+        "options": ["nerd", "emoji"],
+        "defaultValue": "nerd",
+        "description": "Icon style for the pill, today strip, and forecast row: Nerd Font glyphs (nerd) or emoji."
       },
       {
-        "name": "unit",
+        "key": "unit",
+        "type": "enum",
         "label": "Temperature unit",
-        "type": "select",
-        "default": "",
-        "options": [
-          { "value": "", "label": "Auto" },
-          { "value": "metric", "label": "Metric (°C)" },
-          { "value": "imperial", "label": "Imperial (°F)" }
-        ]
+        "options": ["auto", "metric", "imperial"],
+        "defaultValue": "auto",
+        "description": "Metric or Fahrenheit; auto follows the forecast location's country first, then the system locale."
       },
       {
-        "name": "refreshMinutes",
+        "key": "refreshMinutes",
+        "type": "integer",
         "label": "Refresh interval (minutes)",
-        "type": "number",
-        "default": 15,
-        "min": 1
+        "min": 1,
+        "max": 120,
+        "step": 1,
+        "defaultValue": 15,
+        "description": "How often the widget re-fetches weather data."
       }
     ]
   },
