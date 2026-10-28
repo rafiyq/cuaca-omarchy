@@ -4,7 +4,7 @@ Weather pill for the Omarchy bar with a detail popup. A user clone of the
 upstream `omarchy.weather` plugin, rebuilt around
 [cuaca.wilayah.workers.dev](https://github.com/rafiyq/cuaca-worker) (BMKG,
 Badan Meteorologi Klimatologi dan Geofisika) with the original worldwide
-data path kept as a fallback.
+data path kept as a fallback. Release history lives in `CHANGELOG.md`.
 
 ## Data sources
 
@@ -106,6 +106,11 @@ already declares the matching `schema` for whenever that renderer lands.
 - `iconScheme` — `nerd` (Nerd Font glyphs, default) or `emoji`, swapping
   the pill, slot strip, and forecast row together; changes apply live
   without waiting for the next fetch.
+- `unit` — `metric`, `imperial`, or unset for auto-detection (the
+  forecast location's country first, then the system locale; US, Liberia,
+  Myanmar and en-US/en-LR/my locales get Fahrenheit).
+- `refreshMinutes` — auto-refresh interval, default 15, clamped to a
+  minimum of 1.
 
 ## Deferred ideas
 

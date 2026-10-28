@@ -37,6 +37,24 @@
           { "value": "nerd", "label": "Nerd Font glyph" },
           { "value": "emoji", "label": "Emoji" }
         ]
+      },
+      {
+        "name": "unit",
+        "label": "Temperature unit",
+        "type": "select",
+        "default": "",
+        "options": [
+          { "value": "", "label": "Auto" },
+          { "value": "metric", "label": "Metric (°C)" },
+          { "value": "imperial", "label": "Imperial (°F)" }
+        ]
+      },
+      {
+        "name": "refreshMinutes",
+        "label": "Refresh interval (minutes)",
+        "type": "number",
+        "default": 15,
+        "min": 1
       }
     ]
   },
