@@ -49,6 +49,7 @@ Panel {
   function close() {
     setCenterHoverRevealSuppressed(false)
     if (root.editingLocation) root.cancelEditingLocation()
+    root.settingsOpen = false
     root.controller.hide()
   }
 
@@ -198,6 +199,8 @@ Panel {
 
   // Click-to-edit state for the location label.
   property bool editingLocation: false
+  // Whether the settings modal layer is raised over the popup content.
+  property bool settingsOpen: false
   property bool savingLocation: false
   property bool savingLocationQueryStarted: false
   property var locationSuggestions: []
@@ -252,6 +255,67 @@ Panel {
     if (!current) return ""
     if (conditionLang === "en" && current.bmkgConditionEn) return String(current.bmkgConditionEn)
     return current.bmkgCondition ? String(current.bmkgCondition) : ""
+  })()
+
+  // Scoped host facade set onto the widget root when declared, forwarded
+  // from BarWidget.injectPanel; carries _updateSettings(), the shell's
+  // sanctioned way for a plugin to adjust its own inline shell.json entry
+  // (merge semantics, per-key).
+  property var shell: null
+  property var manifest: null
+  property string widgetId: ""  // forwarded moduleName; fallback is the manifest id
+
+  // Settings written by this popup before the host re-injects settings;
+  // cleared on that injection so segments re-read the stored values.
+  property var settingsOverrides: ({})
+  onSettingsChanged: root.settingsOverrides = ({})
+
+  // Effective value for a settings row: optimistic mirror, the injected
+  // value, then the schema default.
+  function effectiveSetting(name, fallback) {
+    if (settingsOverrides[name] !== undefined) return settingsOverrides[name]
+    return setting(name, fallback)
+  }
+
+  // Write one key. Preferred path is the scoped shell facade when the host
+  // provides one to widgets; the everyday path is the bar API's run(), which
+  // reaches the same `omarchy bar set` storage the CLI uses. Only after a
+  // confirmed route does the value mirror optimistically — a refused write
+  // must never lie in the UI.
+  function writeSetting(key, value) {
+    var targetId = String(root.widgetId || (root.manifest ? root.manifest.id : "cuaca.weather"))
+    if (root.shell && typeof root.shell._updateSettings === "function") {
+      var patch = ({})
+      patch[key] = value
+      if (!root.shell._updateSettings(targetId, patch)) return false
+    } else if (root.bar && typeof root.bar.run === "function") {
+      var literal = String(value)
+      var sanitized = literal.replace(/[^a-zA-Z0-9-]/g, "")
+      if (literal === "" || literal !== sanitized) return false
+      root.bar.run("omarchy bar set " + targetId + " " + key + " " + sanitized)
+    } else {
+      return false
+    }
+    var next = ({})
+    for (var k in settingsOverrides) next[k] = settingsOverrides[k]
+    next[key] = value
+    settingsOverrides = next
+    return true
+  }
+
+  // Rows rendered below the forecast. The manifest carries the canonical
+  // list when it is injected; the fallback mirrors the same entries so the
+  // form works regardless of host injection order.
+  readonly property var settingsRows: (function() {
+    var schema = (root.manifest && root.manifest.barWidget && root.manifest.barWidget.schema)
+      ? root.manifest.barWidget.schema : null
+    if (schema && schema.length) return schema
+    return [
+      { key: "conditionLang", type: "enum", label: "Condition language", options: ["id", "en"], defaultValue: "id" },
+      { key: "iconScheme", type: "enum", label: "Icon set", options: ["nerd", "emoji"], defaultValue: "nerd" },
+      { key: "unit", type: "enum", label: "Temperature unit", options: ["auto", "metric", "imperial"], defaultValue: "auto" },
+      { key: "refreshMinutes", type: "integer", label: "Refresh interval (min)", defaultValue: 15, min: 1, max: 120, step: 1 }
+    ]
   })()
   readonly property string reportWind:      current ? (useImperial ? (current.windspeedMiles + " mph") : (current.windspeedKmph + " km/h")) : ""
   readonly property string reportHumidity:  current ? (current.humidity + "%") : ""
@@ -811,9 +875,15 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
       blocked: root.editingLocation
-      onReturnRequested: root.startEditingLocation()
-      onCloseRequested: root.close()
-      onTabRequested: function(direction) { root.switchPanel(direction) }
+      onReturnRequested: if (!root.settingsOpen) root.startEditingLocation()
+      onCloseRequested: {
+        if (root.settingsOpen) root.settingsOpen = false
+        else root.close()
+      }
+      onTabRequested: function(direction) {
+        if (root.settingsOpen) return
+        root.switchPanel(direction)
+      }
 
       Flickable {
         id: weatherScroll
@@ -966,42 +1036,101 @@ Panel {
 
         Column {
           id: heroRight
-          width: weatherStats.implicitWidth
+          // Not just the stats width: pre-fetch the stats are empty, a
+          // collapsed column sits at the popup's right edge, and the
+          // scroll clip then cuts the location row off entirely. Take the
+          // widest of the three candidate rows instead.
+          width: Math.max(weatherStats.implicitWidth, locationLabelRow.implicitWidth, locationEditRow.implicitWidth)
           anchors.right: parent.right
           anchors.rightMargin: Style.space(20)
           anchors.verticalCenter: parent.verticalCenter
           spacing: Style.space(12)
 
-          Row {
+          Item {
+            id: locationRow
             visible: !root.editingLocation && root.reportLocation !== ""
-            spacing: Style.space(6)
+            width: locationLabelRow.implicitWidth
+            height: locationLabelRow.implicitHeight
 
-            TapHandler {
-              onTapped: root.startEditingLocation()
-            }
-            HoverHandler {
+            // Row-wide click target. Anchored to the wrapper, a plain Item,
+            // because horizontal anchoring is illegal on children of a Row
+            // (the earlier in-row fill anchor silently produced a 0x0 area).
+            // The label Row renders after it, so the gear's own MouseArea
+            // stays the topmost handler over its glyph and keeps presses
+            // away from the editor path.
+            MouseArea {
+              anchors.fill: parent
+              hoverEnabled: true
               cursorShape: Qt.PointingHandCursor
+              onClicked: root.startEditingLocation()
             }
 
-            Text {
-              text: ""  // nf-fa-map_marker
-              color: Qt.darker(root.bar.foreground, 1.4)
-              font.family: root.bar.fontFamily
-              font.pixelSize: Style.font.body
-              anchors.verticalCenter: parent.verticalCenter
-            }
-            Text {
-              textFormat: Text.PlainText
-              text: (root.reportLocation || "").toUpperCase()
-              color: Qt.darker(root.bar.foreground, 1.4)
-              font.family: root.bar.fontFamily
-              font.pixelSize: Style.font.body
-              font.letterSpacing: 1
-              anchors.verticalCenter: parent.verticalCenter
+            Row {
+              id: locationLabelRow
+              spacing: Style.space(6)
+
+              Text {
+                text: ""  // nf-fa-map_marker
+                color: Qt.darker(root.bar.foreground, 1.4)
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.body
+                anchors.verticalCenter: parent.verticalCenter
+              }
+              Text {
+                textFormat: Text.PlainText
+                text: (root.reportLocation || "").toUpperCase()
+                color: Qt.darker(root.bar.foreground, 1.4)
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.body
+                font.letterSpacing: 1
+                anchors.verticalCenter: parent.verticalCenter
+              }
+              // Pencil cue: clicking the "hidden" location label opens the
+              // editor; this makes that affordance discoverable.
+              Text {
+                textFormat: Text.PlainText
+                text: ""  // nf-fa-pencil
+                color: Qt.darker(root.bar.foreground, 1.6)
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                anchors.verticalCenter: parent.verticalCenter
+              }
+
+              // Settings gear: the row's background handler opens the
+              // location editor; this glyph is its own button. It renders
+              // after the row-wide MouseArea, so a press on the gear is
+              // consumed here and never reaches the editor path.
+              Item {
+                width: settingsGlyph.implicitWidth
+                height: settingsGlyph.implicitHeight
+                anchors.verticalCenter: parent.verticalCenter
+
+                Text {
+                  id: settingsGlyph
+                  textFormat: Text.PlainText
+                  anchors.fill: parent
+                  verticalAlignment: Text.AlignVCenter
+                  text: ""  // nf-fa-gear
+                  color: gearArea.containsMouse
+                    ? Qt.darker(root.bar.foreground, 1.15)
+                    : Qt.darker(root.bar.foreground, 1.6)
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                }
+
+                MouseArea {
+                  id: gearArea
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.settingsOpen = true
+                }
+              }
             }
           }
 
           Row {
+            id: locationEditRow
             visible: root.editingLocation
             spacing: Style.space(6)
 
@@ -1332,9 +1461,274 @@ Panel {
           }
         }
       }
+
     }
   }
-  }
+
+      // ---- Settings modal, raised by the gear glyph in the location row.
+      //      Declared after the Flickable, so it paints above the popup's
+      //      scroll content and holds across scroll positions. Rows,
+      //      optimistic reads, and write routes are the same machinery
+      //      the inline block used — presentation changed, behavior not.
+      Item {
+        id: settingsModal
+        anchors.fill: parent
+        visible: root.settingsOpen
+        opacity: root.settingsOpen ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 120 } }
+
+        // Scrim: a faint foreground veil over the popup body — subtle
+        // enough to keep content legible, strong enough to signal a
+        // layer. Clicking anywhere on it lowers the modal.
+        Rectangle {
+          anchors.fill: parent
+          color: root.bar.foreground
+          opacity: 0.18
+
+          MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.ArrowCursor
+            onClicked: root.settingsOpen = false
+          }
+        }
+
+        BorderSurface {
+          id: settingsCard
+          anchors.horizontalCenter: parent.horizontalCenter
+          anchors.verticalCenter: parent.verticalCenter
+          width: Math.min(parent.width - Style.space(24), Style.space(360))
+          height: cardContent.implicitHeight + Style.space(28)
+          radius: Style.cornerRadius
+          color: root.bar.background
+          borderSpec: Border.controlSpec("normal", root.bar.foreground, Commons.Color.accent)
+
+          Column {
+            id: cardContent
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.margins: Style.space(14)
+            spacing: Style.space(10)
+
+            Row {
+              width: parent.width
+              spacing: Style.space(8)
+
+              Text {
+                id: settingsCaption
+                textFormat: Text.PlainText
+                text: "SETTINGS"
+                color: Qt.darker(root.bar.foreground, 1.4)
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.caption
+                font.letterSpacing: 1
+                anchors.verticalCenter: parent.verticalCenter
+              }
+              Item {
+                width: parent.width - settingsCaption.implicitWidth - modalClose.implicitWidth - Style.space(16)
+                height: 1
+              }
+              BorderSurface {
+                id: modalClose
+                width: closeGlyph.implicitWidth + Style.space(16)
+                height: closeGlyph.implicitHeight + Style.space(8)
+                radius: Style.cornerRadius
+                color: closeHover.hovered
+                  ? Style.hoverFillFor(root.bar.foreground, Commons.Color.accent)
+                  : "transparent"
+                borderSpec: Border.controlSpec(closeHover.hovered ? "hover-cursor" : "normal", root.bar.foreground, Commons.Color.accent)
+
+                Text {
+                  id: closeGlyph
+                  textFormat: Text.PlainText
+                  anchors.centerIn: parent
+                  text: ""  // nf-fa-close
+                  color: Qt.darker(root.bar.foreground, 1.3)
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+
+                HoverHandler { id: closeHover }
+                MouseArea {
+                  anchors.fill: parent
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.settingsOpen = false
+                }
+              }
+            }
+
+            Rectangle {
+              width: parent.width
+              height: 1
+              color: root.bar.foreground
+              opacity: 0.12
+            }
+
+        Repeater {
+          model: root.settingsRows
+
+          Column {
+            id: settingRow
+            required property var modelData
+            width: parent.width
+            spacing: Style.space(6)
+
+            Text {
+              textFormat: Text.PlainText
+              text: String(settingRow.modelData.label || settingRow.modelData.key || "")
+              color: Qt.darker(root.bar.foreground, 1.4)
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            // ---- enum field: one pick per option
+            Row {
+              visible: String(settingRow.modelData.type) !== "integer"
+              spacing: Style.space(6)
+
+              Repeater {
+                model: (settingRow.modelData.options !== undefined && settingRow.modelData.options !== null)
+                  ? settingRow.modelData.options
+                  : []
+
+                BorderSurface {
+                  id: segment
+                  required property var modelData
+                  required property int index
+
+                  readonly property string optionValue: String(modelData)
+                  readonly property bool isSelected: String(root.effectiveSetting(settingRow.modelData.key, settingRow.modelData.defaultValue)) === optionValue
+
+                  width: optionText.implicitWidth + Style.space(20)
+                  height: optionText.implicitHeight + Style.space(10)
+                  radius: Style.cornerRadius
+                  color: isSelected
+                    ? Style.selectedFillFor(root.bar.foreground, Commons.Color.accent)
+                    : (segmentHover.hovered
+                      ? Style.hoverFillFor(root.bar.foreground, Commons.Color.accent)
+                      : "transparent")
+                  borderSpec: Border.controlSpec(
+                    segment.isSelected ? "selected"
+                      : (segmentHover.hovered ? "hover-cursor" : "normal"),
+                    root.bar.foreground, Commons.Color.accent)
+
+                  Text {
+                    id: optionText
+                    textFormat: Text.PlainText
+                    anchors.centerIn: parent
+                    text: segment.optionValue
+                    color: segment.isSelected
+                      ? Style.selectedStateColor(root.bar.foreground, Commons.Color.accent)
+                      : Qt.darker(root.bar.foreground, 1.3)
+                    font.family: root.bar.fontFamily
+                    font.pixelSize: Style.font.caption
+                  }
+
+                  HoverHandler { id: segmentHover }
+                  MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.writeSetting(settingRow.modelData.key, segment.optionValue)
+                  }
+                }
+              }
+            }
+
+            // ---- integer field: − / value / +
+            Row {
+              visible: String(settingRow.modelData.type) === "integer"
+              spacing: Style.space(8)
+
+              BorderSurface {
+                id: stepButtonMinus
+                width: stepGlyph.implicitWidth + Style.space(16)
+                height: stepGlyph.implicitHeight + Style.space(10)
+                radius: Style.cornerRadius
+                color: minusHover.hovered
+                  ? Style.hoverFillFor(root.bar.foreground, Commons.Color.accent)
+                  : "transparent"
+                borderSpec: Border.controlSpec(
+                  minusHover.hovered ? "hover-cursor" : "normal",
+                  root.bar.foreground, Commons.Color.accent)
+
+                Text {
+                  id: stepGlyph
+                  textFormat: Text.PlainText
+                  anchors.centerIn: parent
+                  text: "−"
+                  color: Qt.darker(root.bar.foreground, 1.3)
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+
+                HoverHandler { id: minusHover }
+                MouseArea {
+                  anchors.fill: parent
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: {
+                    var def = settingRow.modelData
+                    var min = def.min !== undefined ? Number(def.min) : 1
+                    var max = def.max !== undefined ? Number(def.max) : 60
+                    var stepSize = def.step !== undefined ? Number(def.step) : 1
+                    var current = Number(root.effectiveSetting(def.key, def.defaultValue)) || 0
+                    root.writeSetting(def.key, Math.max(min, current - stepSize))
+                  }
+                }
+              }
+
+              Text {
+                textFormat: Text.PlainText
+                text: String(root.effectiveSetting(settingRow.modelData.key, settingRow.modelData.defaultValue))
+                color: root.bar.foreground
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.body
+                width: Style.space(30)
+                horizontalAlignment: Text.AlignHCenter
+                anchors.verticalCenter: parent.verticalCenter
+              }
+
+              BorderSurface {
+                id: stepButtonPlus
+                width: stepGlyphPlus.implicitWidth + Style.space(16)
+                height: stepGlyphPlus.implicitHeight + Style.space(10)
+                radius: Style.cornerRadius
+                color: plusHover.hovered
+                  ? Style.hoverFillFor(root.bar.foreground, Commons.Color.accent)
+                  : "transparent"
+                borderSpec: Border.controlSpec(
+                  plusHover.hovered ? "hover-cursor" : "normal",
+                  root.bar.foreground, Commons.Color.accent)
+
+                Text {
+                  id: stepGlyphPlus
+                  textFormat: Text.PlainText
+                  anchors.centerIn: parent
+                  text: "+"
+                  color: Qt.darker(root.bar.foreground, 1.3)
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+
+                HoverHandler { id: plusHover }
+                MouseArea {
+                  anchors.fill: parent
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: {
+                    var defPlus = settingRow.modelData
+                    var maxPlus = defPlus.max !== undefined ? Number(defPlus.max) : 60
+                    var stepPlus = defPlus.step !== undefined ? Number(defPlus.step) : 1
+                    var currentPlus = Number(root.effectiveSetting(defPlus.key, defPlus.defaultValue)) || 0
+                    root.writeSetting(defPlus.key, Math.min(maxPlus, currentPlus + stepPlus))
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      }
+      }
+    }
   }
 
 }

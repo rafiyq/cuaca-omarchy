@@ -103,8 +103,12 @@ omarchy bar set cuaca.weather refreshMinutes 30 --json
 
 or hand-edit the entry (`{ "id": "cuaca.weather", "conditionLang": "en",
 "iconScheme": "emoji" }`). The manifest declares the same four keys in the
-canonical Omarchy `schema` shape (with a matching `defaults` map), so a
-future shell settings form renders them without rework.
+canonical Omarchy `schema` shape (with a matching `defaults` map), and the
+popup carries the controls too, tucked behind a modal: the gear glyph
+beside the location label raises a settings card whose rows are rendered
+from that same schema, so clicking a segment or stepping the interval
+writes the exact same entry keys the CLI does. The CLI is unchanged and
+still works headless.
 
 - `conditionLang` — `id` (native BMKG wording, default) or `en` (the
   English alias the worker carries, falling back to native when absent).
@@ -119,7 +123,7 @@ future shell settings form renders them without rework.
 
 ## Deferred ideas
 
-- A rendered settings form once the shell exposes one; `conditionLang` and
-  `iconScheme` are already schema-declared and functional via shell.json.
+- If the shell ever renders a native settings UI for third-party widgets,
+  this plugin's own popup rows could be retired in favor of it.
 - A user-level `omarchy-weather-status` shadow script dead-ended: PATH
   resolves `/usr/share/omarchy/bin` ahead of `~/.local/bin`.

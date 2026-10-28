@@ -4,6 +4,48 @@ Release history for the `cuaca.weather` bar plugin (versions track the
 plugin's `manifest.json`). Built and released in one working session on
 2026-10-28; each section notes the release that introduced the change.
 
+## 1.3.0 — 2026-10-28
+
+### Added
+- Settings controls inside the weather popup, behind a modal. A gear
+  glyph in the location row raises the card over the popup content (scrim
+  click, the card's ✕, or ESC lower it); the rows inside render from the
+  manifest's `barWidget.schema` when the host injects it, falling back to
+  an inline mirror of the same four entries: enum fields as segmented
+  picks, `refreshMinutes` as a −/+ stepper clamped to 1–120.
+- A pencil glyph after the location label. The row itself was always
+  clickable to open the editor, but nothing advertised it.
+
+### Changed
+- Settings writes route through the scoped plugin surface: the shell's
+  settings facade for the widget when one is injected, otherwise the bar
+  API's `run()` command channel, which reaches the same `omarchy bar set`
+  storage the CLI uses. A value is only mirrored optimistically once a
+  write route is confirmed, so a refused write never lies in the UI. The
+  CLI commands below stay fully valid.
+- The warnings pill dot takes its urgency tone from the bar facade
+  (`bar.urgent`, which Bar.qml mirrors per frame) instead of the Commons
+  singleton — the same binding that threw `Commons is not defined` when
+  a hot reload raced the module table now has no module dependency.
+
+### Fixed
+- The location row no longer vanishes before a session's first fetch
+  lands: the hero's right column sized itself from the (still empty)
+  stats row, collapsed at the popup's right edge, and the scroll clip
+  cut the row off entirely. The column now takes the widest of the
+  stats, label, and editor rows, so the configured location shows
+  immediately at boot.
+- Clicking the location opens the editor again: the row-wide click area
+  had been anchored inside a Row, whose children reject horizontal
+  anchoring — the area stayed 0×0 (the journal's "Cannot specify … fill
+  … anchors for items inside Row" warning was the tell). It now hangs
+  off a plain wrapper item, with the gear's own area still winning over
+  its glyph.
+- Restored three glyphs the release had shipped as empty strings,
+  rendering at zero width: the pencil cue, the settings gear, and the
+  modal's ✕ — with click areas sized from the missing glyphs, the gear
+  and the ✕ were dead buttons.
+
 ## 1.2.2 — 2026-10-28
 
 ### Fixed

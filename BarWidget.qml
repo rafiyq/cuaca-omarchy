@@ -7,6 +7,11 @@ BarWidget {
   id: root
   moduleName: "cuaca.weather"
 
+  // Scoped host facade (set by the shell when this property exists) and the
+  // plugin manifest, both forwarded to the panel for the settings UI.
+  property var shell: null
+  property var manifest: null
+
   function injectPanel() {
     var target = panelLoader.item
     if (!target) return
@@ -14,6 +19,9 @@ BarWidget {
     if ("settings" in target) target.settings = root.settings
     if ("anchorItem" in target) target.anchorItem = button
     if ("hostWidget" in target) target.hostWidget = root
+    if ("shell" in target) target.shell = root.shell
+    if ("manifest" in target) target.manifest = root.manifest
+    if ("widgetId" in target) target.widgetId = root.moduleName
   }
 
   function refresh() {
@@ -102,7 +110,11 @@ BarWidget {
     width: 5
     height: 5
     radius: 2.5
-    color: Commons.Color.urgent
+    // Urgency tone from the bar facade (Bar.qml mirrors its own color each
+    // frame) rather than the Commons singleton — one less module alias that
+    // can race a hot reload.
+    color: !root.bar ? "transparent"
+      : (root.bar.urgent.a > 0 ? root.bar.urgent : Qt.darker(root.bar.foreground, 1.3))
     border.color: root.bar ? root.bar.background : "transparent"
     border.width: 1
   }
