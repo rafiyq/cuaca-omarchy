@@ -67,6 +67,13 @@ In the widget settings (`weatherSettings` form):
 `omarchy-weather-location` script; the plugin reads it, watches it live, and
 never stores the adm4 village code — it is re-resolved on demand.
 
+For boot performance the last bar glyph is cached in
+`~/.cache/cuaca.weather/report.json` (mode 0600, written after every
+successful BMKG fetch). At shell startup the cached icon shows until live
+data replaces it, and only when the configured location matches the cached
+one. Day grouping and "future" filtering use the location's own IANA
+timezone from the BMKG response, so dates stay correct while traveling.
+
 ## Development
 
 Pure-JS logic lives in `Model.js` (parsing, normalization, units, icons) and
@@ -86,9 +93,8 @@ periodically.
 ## Deferred ideas
 
 - Settings for condition language (native vs `conditionEn`) and icon scheme
-  (nerd-font glyphs vs emoji) — blocked on the shell-side settings form.
-- Night icons and day grouping driven by the location's timezone rather than
-  slot hours.
-- Boot-time hydration of the bar icon from a cache file.
+  (nerd-font glyphs vs emoji). The `settingsForm` renderer is shell-side and
+  not greppably accessible from the plugin; the meta object does carry an
+  unexplored `schema` field worth investigating for plugin-declared settings.
 - Syncing the wttr-based `omarchy-weather-status` system script (unset; the
   right-click toast no longer depends on it).

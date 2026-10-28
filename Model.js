@@ -246,6 +246,25 @@ function firstString() {
   return ""
 }
 
+// Boot-time icon cache (~/.cache/cuaca.weather/report.json), written by
+// the panel after each successful BMKG fetch. Null when absent, junky, or
+// missing the weather code hydration needs.
+function parseReportCache(raw) {
+  try {
+    var data = JSON.parse(String(raw || ""))
+    if (!data || typeof data !== "object") return null
+    var code = parseInt(String(data.weatherCode === undefined || data.weatherCode === null ? "" : data.weatherCode), 10)
+    if (isNaN(code)) return null
+    return {
+      locationState: parseLocationFile(JSON.stringify(data.locationState || null)),
+      weatherCode: code,
+      isDay: Number(data.isDay) === 1
+    }
+  } catch (e) {
+    return null
+  }
+}
+
 // Open-Meteo geocoding response → suggestion rows for the location picker.
 function parseGeocodingResults(raw) {
   try {
@@ -286,6 +305,31 @@ function locationCommit(text, suggestions, selectedIndex) {
 function isFutureForecastDate(dateString, todayString) {
   if (!dateString) return false
   return String(dateString).slice(0, 10) > String(todayString || "")
+}
+
+// Machine-local dates drift from the forecast location's calendar the
+// moment the user travels east or west of BMKG's grids ("today" in Tokyo
+// while BMKG's Jakarta is still yesterday). Resolve the location's date
+// through its IANA zone; any failure — including QML engines without the
+// Intl API — silently keeps the caller's fallback.
+function todayInTimeZone(tzName, fallbackToday) {
+  var tz = String(tzName || "").trim()
+  if (tz === "") return fallbackToday
+  try {
+    if (typeof Intl === "undefined" || !Intl.DateTimeFormat) return fallbackToday
+    var fmt = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" })
+    var parts = fmt.formatToParts(new Date())
+    var year = "", month = "", day = ""
+    for (var i = 0; i < parts.length; i++) {
+      if (parts[i].type === "year") year = parts[i].value
+      else if (parts[i].type === "month") month = parts[i].value
+      else if (parts[i].type === "day") day = parts[i].value
+    }
+    if (year && month && day) return year + "-" + month + "-" + day
+    return fallbackToday
+  } catch (e) {
+    return fallbackToday
+  }
 }
 
 function roundedTemp(value) {
@@ -511,11 +555,13 @@ if (typeof module !== "undefined") {
     countryUsesImperial: countryUsesImperial,
     shouldUseImperial: shouldUseImperial,
     dayName: dayName,
+    todayInTimeZone: todayInTimeZone,
     openMeteoForecastDays: openMeteoForecastDays,
     openMeteoCurrentCondition: openMeteoCurrentCondition,
     bmkgTodaySlots: bmkgTodaySlots,
     bmkgSlotIcon: bmkgSlotIcon,
     parseBmkgWarnings: parseBmkgWarnings,
+    parseReportCache: parseReportCache,
     currentIcon: currentIcon,
     provisionalCurrentIcon: provisionalCurrentIcon,
     weatherResponseCompletesSave: weatherResponseCompletesSave,

@@ -118,8 +118,64 @@ Panel {
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
-    onLoaded: root.configuredLocationState = Model.parseLocationFile(text())
-    onLoadFailed: root.configuredLocationState = Model.parseLocationFile("")
+    onLoaded: {
+      root.configuredLocationState = Model.parseLocationFile(text())
+      Qt.callLater(root.tryHydrateLabel)
+    }
+    onLoadFailed: {
+      root.configuredLocationState = Model.parseLocationFile("")
+      Qt.callLater(root.tryHydrateLabel)
+    }
+  }
+
+  // Boot-time icon hydration. Each successful BMKG fetch persists the last
+  // bar glyph plus the location it belongs to (mode 0600); at shell startup
+  // the cached glyph is shown until live data replaces it — and only when
+  // the configured location is identical to the cached one.
+  readonly property string cacheDir: (String(Quickshell.env("XDG_CACHE_HOME") || "") !== "" ? Quickshell.env("XDG_CACHE_HOME") : (Quickshell.env("HOME") + "/.cache")) + "/cuaca.weather"
+  readonly property string cachePath: cacheDir + "/report.json"
+  property var cacheState: null
+
+  property FileView reportCacheFile: FileView {
+    path: root.cachePath
+    watchChanges: false
+    printErrors: false
+    onLoaded: {
+      root.cacheState = Model.parseReportCache(text())
+      root.tryHydrateLabel()
+    }
+    onLoadFailed: root.cacheState = null
+  }
+
+  function tryHydrateLabel() {
+    if (!cacheState || root.label !== "") return
+    var cached = cacheState.locationState
+    if (String(cached.name) !== String(configuredLocationState.name)) return
+    if (String(cached.latitude) !== String(configuredLocationState.latitude)) return
+    if (String(cached.longitude) !== String(configuredLocationState.longitude)) return
+    var icon = Model.currentIcon({ bmkgWeatherCode: cacheState.weatherCode, isDay: cacheState.isDay }, "")
+    if (icon !== "") root.label = icon
+  }
+
+  // Cache writes ride the same channel as reads: a shell printf with the
+  // JSON handed over as an argv (no quoting hazards), dirs mode 0755 via
+  // mkdir, payload file 0600 via umask.
+  function writeReportCache() {
+    var current = bmkgCurrent
+    if (!current || current.bmkgWeatherCode === undefined || current.bmkgWeatherCode === null) return
+    var payload = {
+      locationState: { name: configuredLocationState.name, latitude: configuredLocationState.latitude, longitude: configuredLocationState.longitude },
+      weatherCode: current.bmkgWeatherCode,
+      isDay: current.isDay === true
+    }
+    cacheWriteProc.command = ["sh", "-c",
+      'mkdir -p "$(dirname "$2")" && umask 077 && printf %s "$1" > "$2"',
+      "cuaca-cache", JSON.stringify(payload), cachePath]
+    cacheWriteProc.running = true
+  }
+
+  Process {
+    id: cacheWriteProc
   }
 
   // The first read can race shell startup (observed sporadically), leaving a
@@ -129,7 +185,11 @@ Panel {
   Timer {
     interval: 1500
     running: true
-    onTriggered: locationFile.reload()
+    onTriggered: {
+      locationFile.reload()
+      reportCacheFile.reload()
+      Qt.callLater(root.tryHydrateLabel)
+    }
   }
 
   property int forecastRetries: 0
@@ -170,6 +230,10 @@ Panel {
   // The village the forecast actually came from (cuaca/BMKG path), the
   // user's configured name, or wttr's detected area on the fallback path.
   readonly property var bmkgLocationInfo: (usingCuaca && bmkgReport && bmkgReport.location) ? bmkgReport.location : null
+  // Location's own calendar date for "future day" grouping and slot
+  // filtering; machine-local date otherwise (wttr path, timezone lookup
+  // failures).
+  readonly property string todayString: Model.todayInTimeZone(usingCuaca && bmkgLocationInfo ? bmkgLocationInfo.timezone : "", Qt.formatDate(new Date(), "yyyy-MM-dd"))
   readonly property string reportLocation: (bmkgLocationInfo && bmkgLocationInfo.desa) ? String(bmkgLocationInfo.desa) : configuredLocation || (areaInfo && areaInfo.areaName && areaInfo.areaName[0] ? areaInfo.areaName[0].value : "")
   readonly property string reportTempNum:   current ? String(useImperial ? current.temp_F : current.temp_C) : ""
   readonly property string tempUnit:        "°" + (useImperial ? "F" : "C")
@@ -417,19 +481,19 @@ Panel {
   }
 
   function buildForecastDays() {
-    return Model.buildForecastDays(report, dailyForecastReport, bmkgReport, Qt.formatDate(new Date(), "yyyy-MM-dd"))
+    return Model.buildForecastDays(report, dailyForecastReport, bmkgReport, root.todayString)
   }
 
   function openMeteoForecastDays() {
-    return Model.openMeteoForecastDays(dailyForecastReport, Qt.formatDate(new Date(), "yyyy-MM-dd"))
+    return Model.openMeteoForecastDays(dailyForecastReport, root.todayString)
   }
 
   function wttrNextForecastDays() {
-    return Model.wttrNextForecastDays(report, Qt.formatDate(new Date(), "yyyy-MM-dd"))
+    return Model.wttrNextForecastDays(report, root.todayString)
   }
 
   function isFutureForecastDate(dateString) {
-    return Model.isFutureForecastDate(dateString, Qt.formatDate(new Date(), "yyyy-MM-dd"))
+    return Model.isFutureForecastDate(dateString, root.todayString)
   }
 
   function roundedTemp(value) {
@@ -573,6 +637,7 @@ Panel {
           if (parsed.location && parsed.location.adm4) root.resolvedAdm4 = String(parsed.location.adm4)
           root.bmkgReport = parsed
           root.label = Model.currentIcon(Model.bmkgCurrentCondition(parsed), root.label)
+          root.writeReportCache()
           root.bmkgRetries = 0
           if (Model.weatherResponseCompletesSave(root.usingCuaca, root.hasConfiguredCoordinates, "bmkg"))
             root.finishSavingLocation()

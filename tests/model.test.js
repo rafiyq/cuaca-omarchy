@@ -136,6 +136,26 @@ check("parseBmkgWarnings: row3 onset synonyms", warningRows[2], {
 check("parseBmkgWarnings: empty", Model.parseBmkgWarnings(JSON.stringify(fixture("warnings-empty.json"))), [])
 check("parseBmkgWarnings: junk", Model.parseBmkgWarnings("<html>"), [])
 
+// ---- todayInTimeZone ----
+check("todayInTimeZone: empty tz → fallback", Model.todayInTimeZone("", "2026-10-28"), "2026-10-28")
+check("todayInTimeZone: unknown tz → fallback", Model.todayInTimeZone("Mars/Narnia", "2026-10-28"), "2026-10-28")
+const tzToday = Model.todayInTimeZone("Asia/Jakarta", "2000-01-01")
+check("todayInTimeZone: valid tz yields ISO date", /^\d{4}-\d{2}-\d{2}$/.test(tzToday), true)
+// Asia/Pacific timezones ahead or behind the caller can shift the date; a
+// zone exactly on UTC+0 must agree with the UTC calendar (not DST-based).
+const utcToday = Model.todayInTimeZone("Etc/GMT", "2000-01-01")
+check("todayInTimeZone: Etc/GMT matches UTC date", utcToday, new Date().toISOString().slice(0, 10))
+
+// ---- parseReportCache ----
+check("parseReportCache: valid", Model.parseReportCache(JSON.stringify({
+  locationState: { name: "Kemayoran", latitude: -6.16, longitude: 106.84 },
+  weatherCode: 61, isDay: true
+})), { locationState: { name: "Kemayoran", latitude: -6.16, longitude: 106.84 }, weatherCode: 61, isDay: true })
+check("parseReportCache: no code → null", Model.parseReportCache('{"locationState": {}, "weatherCode": null, "isDay": true}'), null)
+check("parseReportCache: isDay default false", Model.parseReportCache('{"locationState": {}, "weatherCode": 3, "isDay": 0}').isDay, false)
+check("parseReportCache: junk", Model.parseReportCache("<html>"), null)
+check("parseReportCache: unset", Model.parseReportCache(""), null)
+
 // ---- currentIcon bmkg branch ----
 const iconCode = Model.currentIcon(current, "")
 const expectedIcon = Model.iconForOpenMeteoCode(current.bmkgWeatherCode, !current.isDay)
