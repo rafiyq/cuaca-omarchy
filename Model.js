@@ -1,6 +1,9 @@
 // weather.json holds {"name": ..., "latitude": ..., "longitude": ...} (see
 // omarchy-weather-location, which owns the format). Missing, blank, or
-// unparseable means the location is auto-detected from the IP address.
+// unparseable falls back to the cuaca worker's default village (Kemayoran).
+// Coordinates anywhere in the world are supported: point resolution against
+// the cuaca API decides between BMKG data (Indonesia) and the wttr/Open-Meteo
+// worldwide path.
 function parseLocationFile(raw) {
   var unset = { name: "", latitude: null, longitude: null }
   try {
@@ -23,6 +26,7 @@ function parseLocationFile(raw) {
 // wttr.in path segment for a configured location: exact coordinates when
 // both are present, the URL-encoded name as a fallback (hand-edited
 // weather.loc files may only carry a name), empty for IP auto-detect.
+// Only reaches wttr when the cuaca path was tried first and found nothing.
 function wttrLocationQuery(location, latitude, longitude) {
   var lat = parseFloat(String(latitude))
   var lon = parseFloat(String(longitude))
@@ -30,6 +34,155 @@ function wttrLocationQuery(location, latitude, longitude) {
 
   var name = String(location || "").replace(/^\s+|\s+$/g, "")
   return name === "" ? "" : encodeURIComponent(name)
+}
+
+// ---- cuaca.wilayah.workers.dev (BMKG weather for Indonesia).
+//      Locations are villages keyed by an adm4 code; /api/resolve on a name
+//      and /api/nearest on coordinates both answer with the same result
+//      shape, so one parser covers both. Locations outside Indonesia have
+//      no match (or an absurdly distant nearest village) and the caller
+//      falls back to wttr/Open-Meteo.
+
+// Guard for the coordinates → village lookup: /api/nearest always returns
+// the closest Indonesian village, even for coordinates on other continents.
+// Anything farther than this is effectively "not in Indonesia".
+var cuacaMaxResolveDistanceKm = 50
+
+// Cuaca resolve/nearest response → suggestion rows. Both carry
+// {results: [{code, name, district, city, province, lat, lon, dist_km?}];
+// nearest additionally has dist_km. Kept as suggestion-shaped rows so the
+// location picker treats cuaca villages and Open-Meteo cities alike.
+function parseCuacaResults(raw) {
+  try {
+    var data = JSON.parse(String(raw || "{}"))
+    var results = data.results
+    if (!results || !results.length) return []
+
+    var out = []
+    for (var i = 0; i < results.length; i++) {
+      var r = results[i]
+      if (!r || !r.code || !r.name || r.lat === undefined || r.lon === undefined) continue
+      var region = [r.district, r.city, r.province].filter(function(part) { return !!part }).join(", ")
+      var row = {
+        code: String(r.code),
+        name: String(r.name),
+        description: region,
+        latitude: r.lat,
+        longitude: r.lon
+      }
+      var dist = parseFloat(String(r.dist_km))
+      if (!isNaN(dist)) row.distKm = dist
+      out.push(row)
+    }
+    return out
+  } catch (e) {
+    return []
+  }
+}
+
+// BMKG weather codes follow WMO semantics but use values the wttr-based
+// icon table lacks. Aliased onto the Open-Meteo icon mapping; other values
+// pass through (the glyph function already defaults sensibly).
+function normalizeBmkgCode(code) {
+  if (code === undefined || code === null || code === "") return null
+  var c = parseInt(String(code), 10)
+  if (isNaN(c)) return null
+  if (c === 60) return 61      // drizzle → light rain
+  if (c === 97) return 95      // thundery hail → storm
+  if (c === 5 || c === 10) return 45  // both fog variants
+  return c
+}
+
+function bmkgSlotHour(slot) {
+  // Slot time is location-local wall clock, "YYYY-MM-DD HH:mm:ss". Local
+  // timezone means hour < 6 or >= 18 is night for icon purposes without
+  // any timezone arithmetic.
+  var hour = parseInt(String(slot && slot.time ? slot.time : "0").slice(11, 13), 10)
+  return isNaN(hour) ? 12 : hour
+}
+
+function slotIsDay(hour) {
+  return hour >= 6 && hour < 18
+}
+
+// First slot of the conform response = current conditions (BMKG starts the
+// series at the current 3-hour block). Normalized to wttr's
+// current_condition shape so the panel treats all three sources
+// interchangeably. BMKG reports metric (°C, km/h) and has no feels-like;
+// the FEELS read-out it fed upstream is dropped from the panel.
+function bmkgCurrentCondition(bmkgReport) {
+  var slots = bmkgReport && bmkgReport.forecast ? bmkgReport.forecast : []
+  var slot = slots.length > 0 ? slots[0] : null
+  if (!slot || slot.temp === undefined || slot.temp === null) return null
+
+  var hour = bmkgSlotHour(slot)
+  return {
+    temp_C: roundedTemp(slot.temp),
+    temp_F: roundedTemp(celsiusToFahrenheit(slot.temp)),
+    FeelsLikeC: null,
+    FeelsLikeF: null,
+    windspeedKmph: roundedTemp(slot.windSpeed),
+    windspeedMiles: roundedTemp(parseFloat(String(slot.windSpeed)) * 0.621371),
+    humidity: roundedTemp(slot.humidity),
+    bmkgWeatherCode: normalizeBmkgCode(slot.weather),
+    bmkgCondition: typeof slot.condition === "string" ? slot.condition : "",
+    bmkgConditionEn: typeof slot.conditionEn === "string" ? slot.conditionEn : "",
+    isDay: slotIsDay(hour)
+  }
+}
+
+// Flat 3-hourly slots → per-day rows matching the Open-Meteo shape the
+// forecast row consumes: future dates only, daily hi/lo, and the weather
+// code of the slot nearest noon as the representative day icon.
+function bmkgForecastDays(bmkgReport, todayString) {
+  var slots = bmkgReport && bmkgReport.forecast ? bmkgReport.forecast : []
+  if (!slots.length) return []
+
+  var byDate = []
+  var index = {}
+  for (var i = 0; i < slots.length; i++) {
+    var date = String(slots[i].time || "").slice(0, 10)
+    if (!date || !isFutureForecastDate(date, todayString)) continue
+    if (index[date] === undefined) {
+      index[date] = byDate.length
+      byDate.push({ date: date, slots: [] })
+    }
+    byDate[index[date]].slots.push(slots[i])
+  }
+
+  var result = []
+  for (var d = 0; d < byDate.length && result.length < 3; d++) {
+    var slotsForDay = byDate[d].slots
+    if (!slotsForDay.length) continue
+
+    var hi = null
+    var lo = null
+    var iconSlot = slotsForDay[0]
+    var iconDist = 9999
+    for (var s = 0; s < slotsForDay.length; s++) {
+      var slot = slotsForDay[s]
+      var t = parseFloat(String(slot.temp))
+      if (!isNaN(t)) {
+        if (hi === null || t > hi) hi = t
+        if (lo === null || t < lo) lo = t
+      }
+      var dist = Math.abs(bmkgSlotHour(slot) * 100 - 1200)
+      if (dist < iconDist) {
+        iconDist = dist
+        iconSlot = slot
+      }
+    }
+
+    result.push({
+      date: byDate[d].date,
+      maxtempC: roundedTemp(hi),
+      mintempC: roundedTemp(lo),
+      maxtempF: roundedTemp(celsiusToFahrenheit(hi)),
+      mintempF: roundedTemp(celsiusToFahrenheit(lo)),
+      bmkgWeatherCode: normalizeBmkgCode(iconSlot.weather)
+    })
+  }
+  return result
 }
 
 // Open-Meteo geocoding response → suggestion rows for the location picker.
@@ -175,6 +328,8 @@ function openMeteoCurrentCondition(dailyForecastReport) {
 
 function currentIcon(current, fallback) {
   if (!current) return fallback || ""
+  if (current.bmkgWeatherCode !== undefined && current.bmkgWeatherCode !== null)
+    return iconForOpenMeteoCode(current.bmkgWeatherCode, !current.isDay)
   if (current.openMeteoWeatherCode !== undefined && current.openMeteoWeatherCode !== null)
     return iconForOpenMeteoCode(current.openMeteoWeatherCode, Number(current.isDay) === 0)
   if (current.weatherCode !== undefined && current.weatherCode !== null)
@@ -188,7 +343,11 @@ function provisionalCurrentIcon(current, resolvedIcon) {
   return resolvedIcon || currentIcon(current, "")
 }
 
-function weatherResponseCompletesSave(hasConfiguredCoordinates, source) {
+// Which response completes a location save depends on the active path: the
+// cuaca fetch is the fast one there; without it the old contract applies
+// (open-meteo when coordinates drive the fetch, wttr otherwise).
+function weatherResponseCompletesSave(usingCuaca, hasConfiguredCoordinates, source) {
+  if (usingCuaca) return source === "bmkg"
   return hasConfiguredCoordinates ? source === "open-meteo" : source === "wttr"
 }
 
@@ -201,8 +360,12 @@ function wttrNextForecastDays(report, todayString) {
   return result
 }
 
-function buildForecastDays(report, dailyForecastReport, todayString) {
-  var days = openMeteoForecastDays(dailyForecastReport, todayString)
+// Source precedence: BMKG (Indonesia) when it resolved, then the fast
+// Open-Meteo daily fetch, then wttr's daily block.
+function buildForecastDays(report, dailyForecastReport, bmkgReport, todayString) {
+  var days = bmkgForecastDays(bmkgReport, todayString)
+  if (days.length > 0) return days
+  days = openMeteoForecastDays(dailyForecastReport, todayString)
   return days.length > 0 ? days : wttrNextForecastDays(report, todayString)
 }
 
@@ -217,6 +380,8 @@ function bareTempForDay(day, kind, useImperial) {
 
 function dayIcon(day) {
   if (!day) return ""
+  if (day.bmkgWeatherCode !== undefined && day.bmkgWeatherCode !== null)
+    return iconForOpenMeteoCode(day.bmkgWeatherCode)
   if (day.openMeteoWeatherCode !== undefined && day.openMeteoWeatherCode !== null)
     return iconForOpenMeteoCode(day.openMeteoWeatherCode)
   if (!day.hourly || day.hourly.length === 0) return ""
@@ -269,6 +434,11 @@ if (typeof module !== "undefined") {
   module.exports = {
     parseLocationFile: parseLocationFile,
     wttrLocationQuery: wttrLocationQuery,
+    cuacaMaxResolveDistanceKm: cuacaMaxResolveDistanceKm,
+    parseCuacaResults: parseCuacaResults,
+    normalizeBmkgCode: normalizeBmkgCode,
+    bmkgCurrentCondition: bmkgCurrentCondition,
+    bmkgForecastDays: bmkgForecastDays,
     parseGeocodingResults: parseGeocodingResults,
     locationCommit: locationCommit,
     isFutureForecastDate: isFutureForecastDate,

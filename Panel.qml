@@ -73,12 +73,20 @@ Panel {
   // Parsed wttr.in j1 response. Kept on failure so stale data stays visible.
   property var report: null
   property var dailyForecastReport: null
-  property string wttrLocation: ""
+
+  // Parsed cuaca (BMKG) response, plus the village code the next fetch
+  // should use and whether that data path is actually active. Resolution
+  // reruns on every location change; reports are kept on failure so stale
+  // data stays visible.
+  property var bmkgReport: null
+  property string resolvedAdm4: ""
+  property bool usingCuaca: false
 
   // Configured location, read from the weather.json state file (owned by
   // omarchy-weather-location). The query is the wttr.in path segment
-  // (coordinates when stored, else the encoded name); empty means IP
-  // auto-detect. The watch makes hand edits take effect live.
+  // (coordinates when stored, else the encoded name) used only by the
+  // fallback path; empty means the cuaca default village. The watch makes
+  // hand edits take effect live.
   property var configuredLocationState: ({ name: "", latitude: null, longitude: null })
   readonly property string configuredLocation: configuredLocationState.name
   readonly property string locationQuery: Model.wttrLocationQuery(configuredLocationState.name, configuredLocationState.latitude, configuredLocationState.longitude)
@@ -90,8 +98,16 @@ Panel {
     if (savingLocation) savingLocationQueryStarted = true
     forecastRetries = 0
     dailyForecastRetries = 0
+    bmkgRetries = 0
     forecastProc.running = false
     dailyForecastProc.running = false
+    bmkgResolveProc.running = false
+    bmkgForecastProc.running = false
+    // The new location must resolve on its own terms; mixing the old
+    // village's report under it is worse than a blank while loading.
+    resolvedAdm4 = ""
+    usingCuaca = false
+    bmkgReport = null
     Qt.callLater(refresh)
   }
 
@@ -116,6 +132,7 @@ Panel {
 
   property int forecastRetries: 0
   property int dailyForecastRetries: 0
+  property int bmkgRetries: 0
 
   // Click-to-edit state for the location label.
   property bool editingLocation: false
@@ -129,11 +146,14 @@ Panel {
   // Shared hero/bar icon state, updated with each successful weather response.
   property string label: ""
 
-  // wttr's current conditions when available; open-meteo's (bundled with the
-  // much faster daily forecast fetch) fill the hero while wttr is in flight.
+  // wttr's current conditions when the fallback path runs; open-meteo's
+  // (bundled with the much faster daily forecast fetch) fill the hero while
+  // wttr is in flight. The cuaca path resolves and fetches first, though —
+  // if that succeeded, BMKG's data wins outright.
   readonly property bool hasConfiguredCoordinates: !isNaN(parseFloat(String(configuredLocationState.latitude))) && !isNaN(parseFloat(String(configuredLocationState.longitude)))
   readonly property var openMeteoCurrent: Model.openMeteoCurrentCondition(dailyForecastReport)
-  readonly property var current: (hasConfiguredCoordinates && openMeteoCurrent) ? openMeteoCurrent : ((report && report.current_condition && report.current_condition[0]) ? report.current_condition[0] : openMeteoCurrent)
+  readonly property var bmkgCurrent: Model.bmkgCurrentCondition(bmkgReport)
+  readonly property var current: (usingCuaca && bmkgCurrent) ? bmkgCurrent : (hasConfiguredCoordinates && openMeteoCurrent) ? openMeteoCurrent : ((report && report.current_condition && report.current_condition[0]) ? report.current_condition[0] : openMeteoCurrent)
   readonly property var areaInfo: report && report.nearest_area && report.nearest_area[0] ? report.nearest_area[0] : null
   readonly property var forecastDays: buildForecastDays()
   readonly property string reportCountry: areaInfo && areaInfo.country && areaInfo.country[0] ? areaInfo.country[0].value : ""
@@ -143,10 +163,16 @@ Panel {
   // Auto-refresh interval in minutes; clamped to a sane minimum.
   readonly property int refreshMinutes: Math.max(1, parseInt(setting("refreshMinutes", 15), 10) || 15)
 
-  readonly property string reportLocation:  configuredLocation || wttrLocation || (areaInfo && areaInfo.areaName && areaInfo.areaName[0] ? areaInfo.areaName[0].value : "")
+  // The village the forecast actually came from (cuaca/BMKG path), the
+  // user's configured name, or wttr's detected area on the fallback path.
+  readonly property var bmkgLocationInfo: (usingCuaca && bmkgReport && bmkgReport.location) ? bmkgReport.location : null
+  readonly property string reportLocation: (bmkgLocationInfo && bmkgLocationInfo.desa) ? String(bmkgLocationInfo.desa) : configuredLocation || (areaInfo && areaInfo.areaName && areaInfo.areaName[0] ? areaInfo.areaName[0].value : "")
   readonly property string reportTempNum:   current ? String(useImperial ? current.temp_F : current.temp_C) : ""
   readonly property string tempUnit:        "°" + (useImperial ? "F" : "C")
-  readonly property string reportFeels:     current ? formatTemp(useImperial ? current.FeelsLikeF : current.FeelsLikeC) : ""
+  // BMKG's native Indonesian condition text ("Hujan Ringan", …). The
+  // fallback sources carry no equivalent string, so the read-out shows only
+  // on the cuaca path.
+  readonly property string reportCondition: current && current.bmkgCondition ? String(current.bmkgCondition) : ""
   readonly property string reportWind:      current ? (useImperial ? (current.windspeedMiles + " mph") : (current.windspeedKmph + " km/h")) : ""
   readonly property string reportHumidity:  current ? (current.humidity + "%") : ""
 
@@ -156,12 +182,70 @@ Panel {
     // starve retries for the rest of the session.
     forecastRetries = 0
     dailyForecastRetries = 0
+    bmkgRetries = 0
+    // The cuaca resolution decides which data path runs for this location.
+    refreshBmkg()
+  }
+
+  // The cuaca (BMKG) worker covers Indonesian villages only. Extending the
+  // configured name or coordinates outward first — a village resolves to a
+  // BMKG forecast, no match hands the refresh over to wttr/Open-Meteo, and
+  // nothing configured at all shows the worker's own default village.
+  readonly property string cuacaDefaultAdm4: "31.71.03.1001"  // Kemayoran, Jakarta Pusat
+
+  function refreshBmkg() {
+    if (bmkgResolveProc.running || bmkgForecastProc.running) return
+
+    var lat = parseFloat(String(configuredLocationState.latitude))
+    var lon = parseFloat(String(configuredLocationState.longitude))
+    if (!isNaN(lat) && !isNaN(lon)) {
+      bmkgResolveProc.command = ["curl", "-fsS", "--max-time", "5",
+        "https://cuaca.wilayah.workers.dev/api/nearest?lat=" + encodeURIComponent(String(lat))
+        + "&lon=" + encodeURIComponent(String(lon)) + "&limit=1"]
+      bmkgResolveProc.running = true
+      return
+    }
+
+    var name = configuredLocation.trim()
+    if (name !== "") {
+      bmkgResolveProc.command = ["curl", "-fsS", "--max-time", "5",
+        "https://cuaca.wilayah.workers.dev/api/resolve?q=" + encodeURIComponent(name) + "&limit=1"]
+      bmkgResolveProc.running = true
+      return
+    }
+
+    resolvedAdm4 = cuacaDefaultAdm4
+    usingCuaca = true
+    fetchBmkgForecast()
+  }
+
+  function fetchBmkgForecast() {
+    if (resolvedAdm4 === "" || bmkgForecastProc.running) return
+    bmkgForecastProc.command = ["curl", "-fsS", "--max-time", "8",
+      "https://cuaca.wilayah.workers.dev/api/forecast?adm4=" + encodeURIComponent(resolvedAdm4)]
+    bmkgForecastProc.running = true
+  }
+
+  function startFallbackRefresh() {
     if (!forecastProc.running) forecastProc.running = true
-    if (root.locationQuery === "" && !locationProc.running) locationProc.running = true
     // With stored coordinates this fetches open-meteo right away — no need
     // to wait for the slow wttr response. Without them it's a no-op until
     // wttr reports the detected area.
     refreshDailyForecast(null)
+  }
+
+  // cuaca can be slow when a forecast isn't edge-cached yet. Retry a few
+  // times before leaving it to the refresh timer.
+  function scheduleBmkgRetry() {
+    if (bmkgRetries >= 3) return
+    bmkgRetries++
+    bmkgRetryTimer.restart()
+  }
+
+  Timer {
+    id: bmkgRetryTimer
+    interval: 2500
+    onTriggered: root.refreshBmkg()
   }
 
   function refreshDailyForecast(sourceReport) {
@@ -231,7 +315,6 @@ Panel {
 
   function clearLocation() {
     persistLocation("", null, null)
-    wttrLocation = ""
     cancelEditingLocation()
   }
 
@@ -261,8 +344,10 @@ Panel {
     locationSaveProc.running = true
   }
 
-  // Debounced geocoding. Only one curl runs at a time; if the query moved on
-  // while a fetch was in flight, the latest query is fetched right after.
+  // Debounced location search. The latest query always wins: the cuaca
+  // village search runs first, and only a clean miss hands over to
+  // Open-Meteo's worldwide geocoder; either stage chains forward if the
+  // query moved on while a fetch was in flight.
   function requestGeocode() {
     var query = locationField.text.trim()
     if (query.length < 2) {
@@ -270,10 +355,17 @@ Panel {
       return
     }
     geocodePendingQuery = query
-    if (!geocodeProc.running) startGeocode()
+    if (!cuacaSearchProc.running && !geocodeProc.running) startLocationSearch()
   }
 
-  function startGeocode() {
+  function startLocationSearch() {
+    geocodeActiveQuery = geocodePendingQuery
+    cuacaSearchProc.command = ["curl", "-fsS", "--max-time", "5",
+      "https://cuaca.wilayah.workers.dev/api/resolve?q=" + encodeURIComponent(geocodeActiveQuery) + "&limit=6"]
+    cuacaSearchProc.running = true
+  }
+
+  function startOpenMeteoGeocode() {
     geocodeActiveQuery = geocodePendingQuery
     geocodeProc.command = ["curl", "-fsS", "--max-time", "5",
       "https://geocoding-api.open-meteo.com/v1/search?name=" + encodeURIComponent(geocodeActiveQuery) + "&count=5&language=en&format=json"]
@@ -281,7 +373,7 @@ Panel {
   }
 
   function buildForecastDays() {
-    return Model.buildForecastDays(report, dailyForecastReport, Qt.formatDate(new Date(), "yyyy-MM-dd"))
+    return Model.buildForecastDays(report, dailyForecastReport, bmkgReport, Qt.formatDate(new Date(), "yyyy-MM-dd"))
   }
 
   function openMeteoForecastDays() {
@@ -348,7 +440,7 @@ Panel {
           if (!root.hasConfiguredCoordinates)
             root.label = Model.provisionalCurrentIcon(parsed.current_condition && parsed.current_condition[0], root.label)
           root.forecastRetries = 0
-          if (Model.weatherResponseCompletesSave(root.hasConfiguredCoordinates, "wttr"))
+          if (Model.weatherResponseCompletesSave(root.usingCuaca, root.hasConfiguredCoordinates, "wttr"))
             root.finishSavingLocation()
           // Stored coordinates already drove the fast open-meteo fetch from
           // refresh(); only auto-detect needs the area wttr reported.
@@ -391,6 +483,57 @@ Panel {
     onTriggered: root.refreshDailyForecast(null)
   }
 
+  // Village resolution decides the data path. A malformed response means
+  // the network hiccuped — retry. A clean "no match" (worldwide city, or
+  // coordinates absurdly far from any Indonesian village) is a routing
+  // decision: fall back to wttr/Open-Meteo.
+  Process {
+    id: bmkgResolveProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var rows = Model.parseCuacaResults(text)
+        var first = rows.length > 0 ? rows[0] : null
+        if (first && first.code && !(first.distKm !== undefined && first.distKm > Model.cuacaMaxResolveDistanceKm)) {
+          root.resolvedAdm4 = first.code
+          root.usingCuaca = true
+          root.fetchBmkgForecast()
+          return
+        }
+        root.resolvedAdm4 = ""
+        root.usingCuaca = false
+        root.startFallbackRefresh()
+      }
+    }
+  }
+
+  Process {
+    id: bmkgForecastProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var raw = String(text || "").trim()
+        if (!raw) {
+          root.scheduleBmkgRetry()
+          return
+        }
+        try {
+          var parsed = JSON.parse(raw)
+          if (!parsed || !parsed.forecast || !parsed.forecast.length) throw new Error("no forecast slots")
+          if (parsed.location && parsed.location.adm4) root.resolvedAdm4 = String(parsed.location.adm4)
+          root.bmkgReport = parsed
+          root.label = Model.currentIcon(Model.bmkgCurrentCondition(parsed), root.label)
+          root.bmkgRetries = 0
+          if (Model.weatherResponseCompletesSave(root.usingCuaca, root.hasConfiguredCoordinates, "bmkg"))
+            root.finishSavingLocation()
+        } catch (e) {
+          // Keep last-good BMKG report visible, but try again shortly.
+          root.scheduleBmkgRetry()
+        }
+      }
+    }
+  }
+
   Process {
     id: dailyForecastProc
     stdout: StdioCollector {
@@ -407,12 +550,30 @@ Panel {
           root.dailyForecastReport = parsed
           root.label = Model.currentIcon(parsedCurrent, root.label)
           root.dailyForecastRetries = 0
-          if (Model.weatherResponseCompletesSave(root.hasConfiguredCoordinates, "open-meteo"))
+          if (Model.weatherResponseCompletesSave(root.usingCuaca, root.hasConfiguredCoordinates, "open-meteo"))
             root.finishSavingLocation()
         } catch (e) {
           // Keep last-good daily forecast visible, but try again shortly.
           root.scheduleDailyForecastRetry()
         }
+      }
+    }
+  }
+
+  Process {
+    id: cuacaSearchProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var rows = root.editingLocation ? Model.parseCuacaResults(text) : []
+        if (rows.length === 0 && root.geocodePendingQuery === root.geocodeActiveQuery) {
+          // No Indonesian village carries that name: worldwide cities.
+          root.startOpenMeteoGeocode()
+          return
+        }
+        root.locationSuggestions = rows
+        root.suggestionIndex = 0
+        if (root.geocodePendingQuery !== root.geocodeActiveQuery) Qt.callLater(root.startLocationSearch)
       }
     }
   }
@@ -424,7 +585,7 @@ Panel {
       onStreamFinished: {
         root.locationSuggestions = root.editingLocation ? Model.parseGeocodingResults(text) : []
         root.suggestionIndex = 0
-        if (root.geocodePendingQuery !== root.geocodeActiveQuery) Qt.callLater(root.startGeocode)
+        if (root.geocodePendingQuery !== root.geocodeActiveQuery) Qt.callLater(root.startLocationSearch)
       }
     }
   }
@@ -447,22 +608,12 @@ Panel {
         root.savingLocationQueryStarted = true
         root.forecastRetries = 0
         root.dailyForecastRetries = 0
+        root.bmkgRetries = 0
         forecastProc.running = false
         dailyForecastProc.running = false
+        bmkgResolveProc.running = false
+        bmkgForecastProc.running = false
         Qt.callLater(root.refresh)
-      }
-    }
-  }
-
-  Process {
-    id: locationProc
-    command: ["curl", "-fsS", "--max-time", "4", "https://wttr.in/?format=%l"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var raw = String(text || "").trim()
-        if (!raw) return
-        root.wttrLocation = raw.split(",")[0]
       }
     }
   }
@@ -617,7 +768,7 @@ Panel {
               id: locationField
               width: Style.space(190)
               enabled: !root.savingLocation
-              placeholderText: "Search city"
+              placeholderText: "Search location"
               foreground: root.bar.foreground
               font.family: root.bar.fontFamily
 
@@ -640,8 +791,9 @@ Panel {
               }
             }
 
-            // Clear back to IP auto-detect. While a committed location is
-            // loading, this same compact affordance becomes a spinner.
+            // Clear back to the cuaca default village (Kemayoran). While a
+            // committed location is loading, this same compact affordance
+            // becomes a spinner.
             Rectangle {
               width: Style.space(18)
               height: Style.space(18)
@@ -684,24 +836,6 @@ Panel {
             Column {
               spacing: Style.space(5)
               Text {
-                text: "FEELS"
-                color: Qt.darker(root.bar.foreground, 1.5)
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.bodySmall
-                font.letterSpacing: 1
-              }
-              Text {
-                textFormat: Text.PlainText
-                text: root.reportFeels
-                color: root.bar.foreground
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.title
-              }
-            }
-
-            Column {
-              spacing: Style.space(5)
-              Text {
                 text: "WIND"
                 color: Qt.darker(root.bar.foreground, 1.5)
                 font.family: root.bar.fontFamily
@@ -736,6 +870,18 @@ Panel {
             }
           }
         }
+      }
+
+      // ---- BMKG condition text, native to the cuaca path ("Hujan Ringan",
+      //      …). wttr and Open-Meteo carry no equivalent string, so on the
+      //      fallback path this row simply stays hidden.
+      Text {
+        visible: root.reportCondition !== ""
+        text: root.reportCondition
+        color: Qt.darker(root.bar.foreground, 1.4)
+        font.family: root.bar.fontFamily
+        font.pixelSize: Style.font.bodySmall
+        font.letterSpacing: 1
       }
 
       // ---- Geocoding suggestions while the location is being edited.
