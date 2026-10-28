@@ -1,0 +1,25 @@
+{
+  "adm4": "31.71.03.1001",
+  "warnings": [
+    {
+      "event": "Hujan Petir",
+      "severity": "moderate",
+      "area": "DKI Jakarta",
+      "effective": "2026-11-01 00:00:00",
+      "description": "Potensi hujan petir intensitas sedang"
+    },
+    {
+      "severity": "severe",
+      "areaDesc": "Bandung",
+      "desc": "Angin kencang"
+    },
+    {
+      "event": "Ombak Tinggi",
+      "onset": "2026-11-02 06:00",
+      "time": "2026-11-02 06:00"
+    },
+    {"severity": "", "description": ""},
+    null,
+    "junk"
+  ]
+}
