@@ -321,6 +321,99 @@ function locationCommit(text, suggestions, selectedIndex) {
   return { name: name, latitude: null, longitude: null }
 }
 
+// ---- quick-switch recents ----
+// weather-recents.json holds [{"name", "latitude", "longitude", "adm4"}]
+// — the locations this install has actually used, newest first. adm4
+// rides along as a resolution cache (weather.json itself stays
+// adm4-free): a switch hands the fetcher the known code, skipping the
+// resolve round-trip.
+function parseRecentLocations(text) {
+  var out = []
+  try {
+    var data = JSON.parse(String(text || "[]"))
+    if (!Array.isArray(data)) return out
+    for (var i = 0; i < data.length; i++) {
+      var e = data[i]
+      var name = String((e && e.name) || "").replace(/^\s+|\s+$/g, "")
+      if (name === "") continue
+      var lat = (e.latitude === undefined || e.latitude === null) ? null : Number(e.latitude)
+      var lon = (e.longitude === undefined || e.longitude === null) ? null : Number(e.longitude)
+      out.push({
+        name: name,
+        latitude: isNaN(lat) ? null : lat,
+        longitude: isNaN(lon) ? null : lon,
+        adm4: String(e.adm4 || "")
+      })
+    }
+  } catch (err) {
+    return []
+  }
+  return out
+}
+
+// Entries are identified by adm4 when one is known (the village's
+// identity in the worker's eyes), else by name — wttr/Open-Meteo spots,
+// and commits that have not resolved yet. The name leg is case-agnostic.
+function recentLocationKey(entry) {
+  if (!entry) return ""
+  var adm4 = String(entry.adm4 || "").replace(/^\s+|\s+$/g, "")
+  if (adm4 !== "") return "adm4:" + adm4
+  return "name:" + String(entry.name || "").replace(/^\s+|\s+$/g, "").toLowerCase()
+}
+
+// MRU insert for a commit or switch: the entry moves to the front, its
+// fresh record replacing any stored twin — and a name twin with a known
+// adm4 donates that adm4 (plus coordinates) to the fresh record when the
+// fresh one hasn't resolved yet, so a typed-name recommit of a known
+// village never demotes it. Duplicates collapse, the list truncates to
+// `max`. Absent entry answers the capped list; absent list starts one.
+function commitRecentLocation(list, entry, max) {
+  var cap = Math.max(1, parseInt(max, 10) || 4)
+  var kept = Array.isArray(list) ? list : []
+  if (!entry || !String(entry.name || "").replace(/^\s+|\s+$/g, "")) return kept.slice(0, cap)
+  var lat = (entry.latitude === undefined || entry.latitude === null) ? null : Number(entry.latitude)
+  var lon = (entry.longitude === undefined || entry.longitude === null) ? null : Number(entry.longitude)
+  var fresh = {
+    name: String(entry.name).replace(/^\s+|\s+$/g, ""),
+    latitude: isNaN(lat) ? null : lat,
+    longitude: isNaN(lon) ? null : lon,
+    adm4: String(entry.adm4 || "")
+  }
+  // Merge donor: exact key match first, else a same-named row where at
+  // least one side is unresolved (two resolved villages that merely share
+  // a display name stay distinct).
+  var donor = null
+  for (var d = 0; d < kept.length && donor === null; d++) {
+    var candidate = kept[d]
+    if (!candidate) continue
+    if (recentLocationKey(candidate) === recentLocationKey(fresh)) { donor = candidate; continue }
+    var sameName = String(candidate.name || "").replace(/^\s+|\s+$/g, "").toLowerCase() === fresh.name.toLowerCase()
+    if (sameName && (fresh.adm4 === "" || String(candidate.adm4 || "") === "")) donor = candidate
+  }
+  if (donor) {
+    if (fresh.adm4 === "") fresh.adm4 = String(donor.adm4 || "")
+    if (fresh.latitude === null && donor.latitude !== undefined && donor.latitude !== null && !isNaN(Number(donor.latitude))) fresh.latitude = Number(donor.latitude)
+    if (fresh.longitude === null && donor.longitude !== undefined && donor.longitude !== null && !isNaN(Number(donor.longitude))) fresh.longitude = Number(donor.longitude)
+  }
+  var key = recentLocationKey(fresh)
+  var out = [fresh]
+  for (var i = 0; i < kept.length && out.length < cap; i++) {
+    var row = kept[i]
+    if (!row || recentLocationKey(row) === key) continue
+    var rowName = String(row.name || "").replace(/^\s+|\s+$/g, "")
+    if (rowName.toLowerCase() === fresh.name.toLowerCase() && (fresh.adm4 === "" || String(row.adm4 || "") === "")) continue
+    var rlat = (row.latitude === undefined || row.latitude === null) ? null : Number(row.latitude)
+    var rlon = (row.longitude === undefined || row.longitude === null) ? null : Number(row.longitude)
+    out.push({
+      name: rowName,
+      latitude: isNaN(rlat) ? null : rlat,
+      longitude: isNaN(rlon) ? null : rlon,
+      adm4: String(row.adm4 || "")
+    })
+  }
+  return out
+}
+
 function isFutureForecastDate(dateString, todayString) {
   if (!dateString) return false
   return String(dateString).slice(0, 10) > String(todayString || "")
@@ -674,6 +767,9 @@ if (typeof module !== "undefined") {
     bmkgForecastDays: bmkgForecastDays,
     parseGeocodingResults: parseGeocodingResults,
     locationCommit: locationCommit,
+    parseRecentLocations: parseRecentLocations,
+    recentLocationKey: recentLocationKey,
+    commitRecentLocation: commitRecentLocation,
     isFutureForecastDate: isFutureForecastDate,
     roundedTemp: roundedTemp,
     celsiusToFahrenheit: celsiusToFahrenheit,

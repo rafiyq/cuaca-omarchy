@@ -35,6 +35,10 @@ the wttr/Open-Meteo path instead of blanking out.
 - Future-day strips: tomorrow and the day after, one captioned 3-hourly
   strip each — day label + name + hi/lo over 8
   time/icon/temp/rain-%/wind columns
+- Quick-switch recents: previously used locations as tappable rows under
+  a LOCATIONS caption at the bottom of the settings dropdown; the active
+  one is accented, one tap rewrites the location and refetches (the
+  cached adm4 skips the resolve round-trip)
 - Warning banners above the hero when BMKG publishes CAP warnings
 
 The FEELS read-out from the upstream panel is gone: BMKG publishes no
@@ -48,6 +52,9 @@ feels-like temperature.
   script; "Weather unavailable" before the first response)
 - Click the location label — edit; village search via `/api/resolve` first,
   Open-Meteo worldwide geocoder on a miss
+- Tapping a LOCATIONS row in the settings dropdown switches to that
+  location instantly (cached adm4, no resolve round-trip; the dropdown
+  closes)
 - The bar pill shows the current temperature beside the icon once data
   lands (stacked under it in vertical bars), rounded to an integer and
   honoring the unit setting; `pillTemp: off` collapses the pill back to
@@ -116,13 +123,13 @@ omarchy bar set cuaca.weather refreshMinutes 30 --json
 ```
 
 or hand-edit the entry (`{ "id": "cuaca.weather", "conditionLang": "en",
-"iconScheme": "emoji" }`). The manifest declares the same five keys in the
+"iconScheme": "emoji" }`). The manifest declares the same six keys in the
 canonical Omarchy `schema` shape (with a matching `defaults` map), and the
-popup carries the controls too, tucked behind a modal: the gear glyph
-beside the location label raises a settings card whose rows are rendered
-from that same schema, so clicking a segment or stepping the interval
-writes the exact same entry keys the CLI does. The CLI is unchanged and
-still works headless.
+popup carries the controls too: the corner gear glyph (top-right of the
+popup) drops a settings card whose rows are rendered from that same
+schema, so clicking a segment or stepping the interval writes the exact
+same entry keys the CLI does. The CLI is unchanged and still works
+headless.
 
 - `conditionLang` — `id` (native BMKG wording, default) or `en` (the
   English alias the worker carries, falling back to native when absent);

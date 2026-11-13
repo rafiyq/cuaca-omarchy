@@ -4,6 +4,29 @@ Release history for the `cuaca.weather` bar plugin (versions track the
 plugin's `manifest.json`). Built and released in one working session on
 2026-10-28; each section notes the release that introduced the change.
 
+## 1.4.1 — 2026-11-13
+
+### Added
+- Location quick-switch: previously used locations render as tappable
+  rows under a LOCATIONS caption at the bottom of the settings dropdown
+  (marker + name; the active one accented; hidden until a second entry
+  exists). One tap rewrites the location state file through the same
+  commit path as an edit and refetches — the row's cached adm4 feeds
+  the fetcher directly, skipping the resolve round-trip. A stale adm4
+  self-heals: the forecast response corrects the code and three
+  forecast failures fall back to wttr.
+- Recents live in a new `weather-recents.json` state file (mode 0600,
+  same write recipe as the report cache); entries carry name,
+  coordinates, and adm4 as a resolution cache — `weather.json` itself
+  stays adm4-free. The list is MRU, deduped by adm4 (name fallback),
+  capped at four, seeded by each successful cuaca forecast (the
+  worker's location block supplies the canonical village name and
+  coordinates, updated in place so auto-refreshes never reorder it)
+  and by each location commit; typed-name recommits inherit the stored
+  adm4 of their village. No delete UI — the oldest falls off the cap.
+- manifest 1.4.1; Model.js gains parseRecentLocations +
+  recentLocationKey + commitRecentLocation (exports, +9 offline tests).
+
 ## 1.4.0 — 2026-10-28
 
 ### Added

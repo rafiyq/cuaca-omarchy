@@ -239,5 +239,41 @@ const committed = Model.locationCommit("Kemayoran", resolveRows, 0)
 check("locationCommit: picks suggestion", [committed.name, committed.code], ["Kemayoran", "31.71.03.1001"])
 check("locationCommit: bare text", Model.locationCommit("Bali", [], 0), { name: "Bali", latitude: null, longitude: null })
 
+// ---- quick-switch recents ----
+check("parseRecentLocations: valid rows", Model.parseRecentLocations(JSON.stringify([
+  { name: "Soropaten", latitude: -7.63, longitude: 110.61, adm4: "33.10.18.2013" },
+  { name: "Bali", latitude: null, longitude: null }
+])), [
+  { name: "Soropaten", latitude: -7.63, longitude: 110.61, adm4: "33.10.18.2013" },
+  { name: "Bali", latitude: null, longitude: null, adm4: "" }
+])
+check("parseRecentLocations: junk safe", [Model.parseRecentLocations(""), Model.parseRecentLocations("not json"), Model.parseRecentLocations("42"), Model.parseRecentLocations(JSON.stringify({ name: "x" }))].map(function (r) { return r.length }), [0, 0, 0, 0])
+check("parseRecentLocations: cleanup", Model.parseRecentLocations(JSON.stringify([{ adm4: "1" }, { name: "  Y  ", latitude: "x", adm4: 2 }])), [{ name: "Y", latitude: null, longitude: null, adm4: "2" }])
+check("recentLocationKey: adm4 wins", [Model.recentLocationKey({ name: "A", adm4: "9" }), Model.recentLocationKey({ name: " Bali " }), Model.recentLocationKey({ name: "bali" }), Model.recentLocationKey(null)], ["adm4:9", "name:bali", "name:bali", ""])
+check("commitRecentLocation: mru front", Model.commitRecentLocation([{ name: "A", adm4: "1" }], { name: "B", adm4: "2" }, 4), [
+  { name: "B", latitude: null, longitude: null, adm4: "2" },
+  { name: "A", latitude: null, longitude: null, adm4: "1" }
+])
+check("commitRecentLocation: recommit merges", Model.commitRecentLocation([
+  { name: "B", latitude: null, longitude: null, adm4: "2" },
+  { name: "A", latitude: -7.6, longitude: 110.6, adm4: "1" }
+], { name: "A", latitude: -7.61, longitude: 110.61 }, 4), [
+  { name: "A", latitude: -7.61, longitude: 110.61, adm4: "1" },
+  { name: "B", latitude: null, longitude: null, adm4: "2" }
+])
+check("commitRecentLocation: cap drops oldest", Model.commitRecentLocation([
+  { name: "A", adm4: "1" }, { name: "B", adm4: "2" }, { name: "C", adm4: "3" }
+], { name: "D", adm4: "4" }, 3), [
+  { name: "D", latitude: null, longitude: null, adm4: "4" },
+  { name: "A", latitude: null, longitude: null, adm4: "1" },
+  { name: "B", latitude: null, longitude: null, adm4: "2" }
+])
+check("commitRecentLocation: absent safe", [Model.commitRecentLocation(null, { name: "A", adm4: "1" }, 4).length, Model.commitRecentLocation([{ name: "A", adm4: "1" }], null, 4).length], [1, 1])
+check("commitRecentLocation: typed recommit inherits adm4", Model.commitRecentLocation([
+  { name: "Soropaten", latitude: -7.6, longitude: 110.6, adm4: "33.10.18.2013" }
+], { name: "soropaten", latitude: null, longitude: null }, 4), [
+  { name: "soropaten", latitude: -7.6, longitude: 110.6, adm4: "33.10.18.2013" }
+])
+
 console.log(failures === 0 ? "\nALL PASS" : "\n" + failures + " FAILURES")
 process.exit(failures === 0 ? 0 : 1)

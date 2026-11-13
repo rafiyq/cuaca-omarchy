@@ -93,6 +93,18 @@ Panel {
   readonly property string configuredLocation: configuredLocationState.name
   readonly property string locationQuery: Model.wttrLocationQuery(configuredLocationState.name, configuredLocationState.latitude, configuredLocationState.longitude)
 
+  // Quick-switch recents: previously used locations, newest first,
+  // capped at four. adm4 rides along as a resolution cache —
+  // weather.json itself stays adm4-free — so a switch hands the fetcher
+  // the known code and skips the resolve round-trip. Seeded by each
+  // successful cuaca forecast (the worker reports the village identity)
+  // and by each location commit.
+  readonly property string recentsPath: Quickshell.env("HOME") + "/.local/state/omarchy/settings/weather-recents.json"
+  property var recentLocations: []
+  // Switch-time hint: the tapped row's adm4, consumed once by the next
+  // refresh to skip the resolve round-trip.
+  property string pendingAdm4: ""
+
   // Keep the previous report visible while the new location loads. The
   // editor remains open with a spinner, so stale data is never presented
   // under the newly configured location label.
@@ -127,6 +139,15 @@ Panel {
       root.configuredLocationState = Model.parseLocationFile("")
       Qt.callLater(root.tryHydrateLabel)
     }
+  }
+
+  property FileView recentLocationsFile: FileView {
+    path: root.recentsPath
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.recentLocations = Model.parseRecentLocations(text())
+    onLoadFailed: root.recentLocations = Model.parseRecentLocations("")
   }
 
   // Boot-time icon hydration. Each successful BMKG fetch persists the last
@@ -396,6 +417,18 @@ Panel {
   function refreshBmkg() {
     if (bmkgResolveProc.running || bmkgForecastProc.running) return
 
+    // A quick-switch hands over its known adm4 — skip the resolve
+    // round-trip and fetch straight away. A stale code self-heals: the
+    // response's own location block corrects a wrong code, and three
+    // forecast failures fall through to the wttr path.
+    if (pendingAdm4 !== "") {
+      resolvedAdm4 = pendingAdm4
+      pendingAdm4 = ""
+      usingCuaca = true
+      fetchBmkgForecast()
+      return
+    }
+
     var lat = parseFloat(String(configuredLocationState.latitude))
     var lon = parseFloat(String(configuredLocationState.longitude))
     if (!isNaN(lat) && !isNaN(lon)) {
@@ -526,6 +559,7 @@ Panel {
       longitude: location.longitude
     }
     persistLocation(location.name, location.latitude, location.longitude)
+    recordLocationCommit(location.name, location.latitude, location.longitude, location.code)
   }
 
   function clearLocation() {
@@ -543,6 +577,7 @@ Panel {
       longitude: suggestion.longitude
     }
     persistLocation(suggestion.name, suggestion.latitude, suggestion.longitude)
+    recordLocationCommit(suggestion.name, suggestion.latitude, suggestion.longitude, suggestion.code)
   }
 
   function finishSavingLocation() {
@@ -579,6 +614,90 @@ Panel {
     else
       locationSaveProc.command = ["omarchy-weather-location", "--clear"]
     locationSaveProc.running = true
+  }
+
+  // ---- quick-switch recents ----
+  // Same shell recipe as the report cache: mode 0600, parents made.
+  function saveRecentLocations(list) {
+    recentLocations = list
+    recentsWriteProc.command = ["sh", "-c",
+      'mkdir -p "$(dirname "$2")" && umask 077 && printf %s "$1" > "$2"',
+      "cuaca-recents", JSON.stringify(list), recentsPath]
+    recentsWriteProc.running = true
+  }
+
+  // The commit paths (typed/edited name, picked suggestion) and the
+  // quick-switch all funnel here. adm4 arrives with suggestions and
+  // recents rows; a typed name stays empty until the forecast pins it.
+  function recordLocationCommit(name, latitude, longitude, adm4) {
+    if (!name) return
+    saveRecentLocations(Model.commitRecentLocation(recentLocations, {
+      name: String(name),
+      latitude: latitude,
+      longitude: longitude,
+      adm4: String(adm4 || "")
+    }, 4))
+  }
+
+  // Refresh-time reconciliation: the forecast response is the worker's
+  // own view of the resolved village. Update the matching entry in place
+  // (canonical name, coordinates, pinned adm4) or add it — never reorder,
+  // so auto-refreshes don't churn the MRU order. This also seeds the
+  // default village and gives typed-name commits their adm4.
+  function recordResolvedLocation(locationInfo) {
+    var adm4 = locationInfo && locationInfo.adm4 ? String(locationInfo.adm4) : ""
+    var name = String(locationInfo && locationInfo.desa ? locationInfo.desa : configuredLocationState.name || "").replace(/^\s+|\s+$/g, "")
+    if (adm4 === "" || name === "") return
+    var entry = {
+      name: name,
+      latitude: locationInfo && locationInfo.lat !== undefined ? parseFloat(locationInfo.lat) : configuredLocationState.latitude,
+      longitude: locationInfo && locationInfo.lon !== undefined ? parseFloat(locationInfo.lon) : configuredLocationState.longitude,
+      adm4: adm4
+    }
+    if (isNaN(entry.latitude)) entry.latitude = null
+    if (isNaN(entry.longitude)) entry.longitude = null
+    var key = Model.recentLocationKey(entry)
+    for (var i = 0; i < recentLocations.length; i++) {
+      var row = recentLocations[i]
+      if (!row || Model.recentLocationKey(row) !== key) continue
+      var merged = { name: name, latitude: entry.latitude, longitude: entry.longitude, adm4: adm4 }
+      if (row.name === merged.name && row.adm4 === merged.adm4 && row.latitude === merged.latitude && row.longitude === merged.longitude) return
+      var updated = []
+      for (var j = 0; j < recentLocations.length; j++) updated.push(recentLocations[j] === row ? merged : recentLocations[j])
+      saveRecentLocations(updated)
+      return
+    }
+    saveRecentLocations(Model.commitRecentLocation(recentLocations, entry, 4))
+  }
+
+  // Active check shared by the row highlight and the switch guard:
+  // adm4-keyed rows match the resolved village, name-only rows the
+  // configured label (wttr spots, unresolved commits).
+  function isCurrentRecent(entry) {
+    if (!entry) return false
+    if (String(entry.adm4 || "") !== "") return usingCuaca && String(entry.adm4) === resolvedAdm4
+    return String(entry.name) === String(configuredLocationState.name)
+  }
+
+  function switchToRecent(entry) {
+    if (!entry || !entry.name || isCurrentRecent(entry)) return
+    // The hint must exist before the state assignment: onLocationQueryChanged
+    // fires synchronously and schedules the refresh that consumes it.
+    pendingAdm4 = String(entry.adm4 || "")
+    savingLocation = true
+    savingLocationQueryStarted = false
+    configuredLocationState = {
+      name: String(entry.name),
+      latitude: entry.latitude === undefined ? null : entry.latitude,
+      longitude: entry.longitude === undefined ? null : entry.longitude
+    }
+    persistLocation(String(entry.name), entry.latitude === undefined ? null : entry.latitude, entry.longitude === undefined ? null : entry.longitude)
+    saveRecentLocations(Model.commitRecentLocation(recentLocations, entry, 4))
+    settingsOpen = false
+  }
+
+  Process {
+    id: recentsWriteProc
   }
 
   // Debounced location search. The latest query always wins: the cuaca
@@ -794,7 +913,10 @@ Panel {
         try {
           var parsed = JSON.parse(raw)
           if (!parsed || !parsed.forecast || !parsed.forecast.length) throw new Error("no forecast slots")
-          if (parsed.location && parsed.location.adm4) root.resolvedAdm4 = String(parsed.location.adm4)
+          if (parsed.location && parsed.location.adm4) {
+            root.resolvedAdm4 = String(parsed.location.adm4)
+            root.recordResolvedLocation(parsed.location)
+          }
           root.bmkgReport = parsed
           root.label = Model.currentIcon(Model.bmkgCurrentCondition(parsed), root.label, root.iconScheme)
           root.writeReportCache()
@@ -1878,6 +2000,88 @@ Panel {
                             root.writeSetting(defPlus.key, Math.min(maxPlus, currentPlus + stepPlus))
                           }
                         }
+                      }
+                    }
+                  }
+                }
+
+                // ---- LOCATIONS: quick-switch recents
+                // Previously used villages and spots, newest first; one
+                // tap switches (weather.json rewrite + refetch, the known
+                // adm4 skipping the resolve round-trip). Hidden until a
+                // second entry exists so single-village installs see
+                // nothing new.
+                Column {
+                  visible: root.recentLocations.length >= 2
+                  width: parent.width
+                  spacing: Style.space(6)
+
+                  Text {
+                    textFormat: Text.PlainText
+                    text: "LOCATIONS"
+                    color: Qt.darker(root.bar.foreground, 1.4)
+                    font.family: root.bar.fontFamily
+                    font.pixelSize: Style.font.caption
+                    font.letterSpacing: 1
+                  }
+
+                  Rectangle {
+                    width: parent.width
+                    height: 1
+                    color: root.bar.foreground
+                    opacity: 0.12
+                  }
+
+                  Repeater {
+                    model: root.recentLocations
+
+                    Item {
+                      id: recentRow
+                      required property var modelData
+
+                      readonly property bool isActive: root.isCurrentRecent(recentRow.modelData)
+
+                      width: parent.width
+                      height: recentRowLabel.implicitHeight + Style.space(10)
+
+                      Rectangle {
+                        anchors.fill: parent
+                        radius: Style.cornerRadius
+                        color: recentRowHover.hovered && !recentRow.isActive
+                          ? Style.hoverFillFor(root.bar.foreground, Commons.Color.accent)
+                          : "transparent"
+                      }
+
+                      HoverHandler { id: recentRowHover }
+
+                      Row {
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Style.space(6)
+
+                        Text {
+                          textFormat: Text.PlainText
+                          text: ""
+                          color: recentRow.isActive ? Commons.Color.accent : Qt.darker(root.bar.foreground, 1.4)
+                          font.family: root.bar.fontFamily
+                          font.pixelSize: Style.font.caption
+                          anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        Text {
+                          id: recentRowLabel
+                          textFormat: Text.PlainText
+                          text: String(recentRow.modelData.name)
+                          color: recentRow.isActive ? Commons.Color.accent : root.bar.foreground
+                          font.family: root.bar.fontFamily
+                          font.pixelSize: Style.font.body
+                          anchors.verticalCenter: parent.verticalCenter
+                        }
+                      }
+
+                      MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.switchToRecent(recentRow.modelData)
                       }
                     }
                   }
