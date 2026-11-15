@@ -36,9 +36,10 @@ the wttr/Open-Meteo path instead of blanking out.
   strip each — day label + name + hi/lo over 8
   time/icon/temp/rain-%/wind columns
 - Quick-switch recents: previously used locations as tappable rows under
-  a LOCATIONS caption at the bottom of the settings dropdown; the active
-  one is accented, one tap rewrites the location and refetches (the
-  cached adm4 skips the resolve round-trip)
+  a LOCATIONS caption leading the settings dropdown (above the settings
+  rows); the section appears once a location is recorded — a lone row is
+  the current village, accented — and one tap rewrites the location and
+  refetches (the cached adm4 skips the resolve round-trip)
 - Warning banners above the hero when BMKG publishes CAP warnings
 
 The FEELS read-out from the upstream panel is gone: BMKG publishes no

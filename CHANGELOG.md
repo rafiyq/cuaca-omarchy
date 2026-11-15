@@ -4,6 +4,15 @@ Release history for the `cuaca.weather` bar plugin (versions track the
 plugin's `manifest.json`). Built and released in one working session on
 2026-10-28; each section notes the release that introduced the change.
 
+## 1.4.2 — 2026-11-15
+
+### Changed
+- The LOCATIONS section leads the settings dropdown (above the settings
+  rows) and appears once a location is recorded instead of waiting for a
+  second entry — a lone row is the current village, accented, mirroring
+  the automatic current-place entry established weather UIs keep in
+  their location lists.
+
 ## 1.4.1 — 2026-11-13
 
 ### Added

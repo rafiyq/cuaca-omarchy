@@ -1826,6 +1826,88 @@ Panel {
                 width: cardScroll.width
                 spacing: Style.space(10)
 
+                // ---- LOCATIONS: quick-switch recents
+                // Previously used villages and spots, newest first; one
+                // tap switches (weather.json rewrite + refetch, the known
+                // adm4 skipping the resolve round-trip). The section leads
+                // the card and appears once a location is recorded — a
+                // lone row is the current village, accented.
+                Column {
+                  visible: root.recentLocations.length >= 1
+                  width: parent.width
+                  spacing: Style.space(6)
+
+                  Text {
+                    textFormat: Text.PlainText
+                    text: "LOCATIONS"
+                    color: Qt.darker(root.bar.foreground, 1.4)
+                    font.family: root.bar.fontFamily
+                    font.pixelSize: Style.font.caption
+                    font.letterSpacing: 1
+                  }
+
+                  Rectangle {
+                    width: parent.width
+                    height: 1
+                    color: root.bar.foreground
+                    opacity: 0.12
+                  }
+
+                  Repeater {
+                    model: root.recentLocations
+
+                    Item {
+                      id: recentRow
+                      required property var modelData
+
+                      readonly property bool isActive: root.isCurrentRecent(recentRow.modelData)
+
+                      width: parent.width
+                      height: recentRowLabel.implicitHeight + Style.space(10)
+
+                      Rectangle {
+                        anchors.fill: parent
+                        radius: Style.cornerRadius
+                        color: recentRowHover.hovered && !recentRow.isActive
+                          ? Style.hoverFillFor(root.bar.foreground, Commons.Color.accent)
+                          : "transparent"
+                      }
+
+                      HoverHandler { id: recentRowHover }
+
+                      Row {
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Style.space(6)
+
+                        Text {
+                          textFormat: Text.PlainText
+                          text: ""
+                          color: recentRow.isActive ? Commons.Color.accent : Qt.darker(root.bar.foreground, 1.4)
+                          font.family: root.bar.fontFamily
+                          font.pixelSize: Style.font.caption
+                          anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        Text {
+                          id: recentRowLabel
+                          textFormat: Text.PlainText
+                          text: String(recentRow.modelData.name)
+                          color: recentRow.isActive ? Commons.Color.accent : root.bar.foreground
+                          font.family: root.bar.fontFamily
+                          font.pixelSize: Style.font.body
+                          anchors.verticalCenter: parent.verticalCenter
+                        }
+                      }
+
+                      MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.switchToRecent(recentRow.modelData)
+                      }
+                    }
+                  }
+                }
+
                 Text {
                   id: settingsCaption
                   textFormat: Text.PlainText
@@ -2005,87 +2087,6 @@ Panel {
                   }
                 }
 
-                // ---- LOCATIONS: quick-switch recents
-                // Previously used villages and spots, newest first; one
-                // tap switches (weather.json rewrite + refetch, the known
-                // adm4 skipping the resolve round-trip). Hidden until a
-                // second entry exists so single-village installs see
-                // nothing new.
-                Column {
-                  visible: root.recentLocations.length >= 2
-                  width: parent.width
-                  spacing: Style.space(6)
-
-                  Text {
-                    textFormat: Text.PlainText
-                    text: "LOCATIONS"
-                    color: Qt.darker(root.bar.foreground, 1.4)
-                    font.family: root.bar.fontFamily
-                    font.pixelSize: Style.font.caption
-                    font.letterSpacing: 1
-                  }
-
-                  Rectangle {
-                    width: parent.width
-                    height: 1
-                    color: root.bar.foreground
-                    opacity: 0.12
-                  }
-
-                  Repeater {
-                    model: root.recentLocations
-
-                    Item {
-                      id: recentRow
-                      required property var modelData
-
-                      readonly property bool isActive: root.isCurrentRecent(recentRow.modelData)
-
-                      width: parent.width
-                      height: recentRowLabel.implicitHeight + Style.space(10)
-
-                      Rectangle {
-                        anchors.fill: parent
-                        radius: Style.cornerRadius
-                        color: recentRowHover.hovered && !recentRow.isActive
-                          ? Style.hoverFillFor(root.bar.foreground, Commons.Color.accent)
-                          : "transparent"
-                      }
-
-                      HoverHandler { id: recentRowHover }
-
-                      Row {
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: Style.space(6)
-
-                        Text {
-                          textFormat: Text.PlainText
-                          text: ""
-                          color: recentRow.isActive ? Commons.Color.accent : Qt.darker(root.bar.foreground, 1.4)
-                          font.family: root.bar.fontFamily
-                          font.pixelSize: Style.font.caption
-                          anchors.verticalCenter: parent.verticalCenter
-                        }
-
-                        Text {
-                          id: recentRowLabel
-                          textFormat: Text.PlainText
-                          text: String(recentRow.modelData.name)
-                          color: recentRow.isActive ? Commons.Color.accent : root.bar.foreground
-                          font.family: root.bar.fontFamily
-                          font.pixelSize: Style.font.body
-                          anchors.verticalCenter: parent.verticalCenter
-                        }
-                      }
-
-                      MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: root.switchToRecent(recentRow.modelData)
-                      }
-                    }
-                  }
-                }
               }
             }
           }

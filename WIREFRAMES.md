@@ -136,6 +136,11 @@ edge. If the row is missing here after a shell restart, the fix regressed.
     ⚙  ← corner gear: fixed at the popup's top-right (20px margin, ~10px down),
           22px circular hover fill; always visible, re-click toggles the menu
     ┌──────────────────────────────────┐  ← card drops from beneath the gear:
+    │ LOCATIONS                        │
+    │ ──────────────────────────────── │
+    │ ⌖ Soropaten                      │  ← quick-switch recents: MRU, tap switches;
+    │ ⌖ Bangkle                        │     active accented; appears once a location
+    │                                  │     is recorded — a lone row is the current village
     │ SETTINGS                         │     ~300px (min parent−40), right
     │ ──────────────────────────────── │     edge at the 20px margin, 6px
     │ Condition language               │     below the gear, y clamped to
@@ -150,11 +155,6 @@ edge. If the row is missing here after a shell restart, the fix regressed.
     │ [ mono ]  [ color ]              │  ← the colorMode row: mono = theme
     │ Refresh interval (minutes)       │     siblings (default), color = temp/
     │     [ − ]   15   [ + ]           │          wind tinted; 8px gaps, clamped 1–120
-    │ LOCATIONS                        │
-    │ ──────────────────────────────── │
-    │ ⌖ Soropaten                      │  ← quick-switch recents: MRU, tap switches;
-    │ ⌖ Bangkle                        │     active accented; hidden until a second
-    │                                  │     entry exists — single-village installs see nothing
     └──────────────────────────────────┘  ← card taller than the popup? it
                                             clamps and its rows scroll inside
     no scrim — the popup stays fully visible behind the menu
@@ -190,6 +190,6 @@ of the live conditions (temp with unit, wind, humidity, rain as available);
 6. Editor: field + clear button inline, suggestions as full-width rows below,
    selected row accent-filled.
 7. Future strips: BESOK/LUSA captions with day name + hi/lo; 8 slot columns
-8. Dropdown: LOCATIONS rows under the six setting rows, active one
+8. Dropdown: LOCATIONS rows lead the card (above the six setting rows), active one accented, visible once a location is recorded; tapping one closes the dropdown and refetches.
    accented; tapping one closes the dropdown and refetches.
    each (time/icon/temp/rain %/wind), night icons included.
