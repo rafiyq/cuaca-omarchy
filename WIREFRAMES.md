@@ -74,6 +74,10 @@ these against the bindings — stale wireframes are worse than none.
  │     27° 26° 28° 28° 28° 27° 26° 26°                         │
  │     80% 75% 60% 40% 30% 20% 10%  5%                         │
  │   ↑ 12  ↗ 15  → 18  ↘ 22  ↓ 25  ↙ 28  ← 30  ↖ 32            │
+ │                                                             │
+ │                           ● ○ ○ ○                           │  ← carousel dots: one per
+ │                                                             │     location, active accented;
+ │                                                             │     tap jumps; swipe/scroll pages
  └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -140,7 +144,7 @@ edge. If the row is missing here after a shell restart, the fix regressed.
     ┌──────────────────────────────────┐  ← card drops from beneath the gear:
     │ LOCATIONS                        │
     │ ──────────────────────────────── │
-    │ ⌖ Soropaten                      │  ← quick-switch recents: MRU, tap switches;
+    │ ⌖ Soropaten                      │  ← quick-switch recents: tap switches (stable order);
     │ ⌖ Bangkle                        │     active accented; appears once a location
     │                                  │     is recorded — a lone row is the current village
     │ SETTINGS                         │     ~300px (min parent−40), right
@@ -197,3 +201,6 @@ of the live conditions (temp with unit, wind, humidity, rain as available);
    each (time/icon/temp/rain %/wind), night icons included; a hairline
    separates every pair of day sections (same weight as the divider above
    BESOK).
+9. Carousel: swipe the popup body, wheel over it (when it doesn't scroll), or wheel
+   over the bar pill — each step pages through the recorded locations; dots under
+   the strips show position, tap to jump; switches update in place (insert-only).

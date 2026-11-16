@@ -696,6 +696,30 @@ Panel {
     settingsOpen = false
   }
 
+  // Carousel position: wherever the current location sits in the recents
+  // list; a current location that is not recorded yet answers -1, and the
+  // cycle wraps that to the first entry.
+  function currentLocationIndex() {
+    for (var i = 0; i < recentLocations.length; i++)
+      if (isCurrentRecent(recentLocations[i])) return i
+    return -1
+  }
+
+  // One carousel step in stored list order (dir -1 = previous, 1 = next,
+  // wrapping). A step is a real switch — the same commit path as tapping
+  // a LOCATIONS row — throttled so fast spins and flicks can't stack
+  // refetches.
+  function cycleLocation(dir) {
+    var n = recentLocations.length
+    if (n < 2) return
+    if (cycleThrottle.running) return
+    cycleThrottle.restart()
+    pageSlide.direction = dir
+    pageSlide.restart()
+    var target = (currentLocationIndex() + dir + n) % n
+    switchToRecent(recentLocations[target])
+  }
+
   Process {
     id: recentsWriteProc
   }
@@ -874,6 +898,26 @@ Panel {
   Timer {
     id: dailyForecastRetryTimer
     onTriggered: root.refreshDailyForecast(null)
+  }
+
+  // Page-turn for carousel switches: the body dips toward the swipe
+  // direction and fades, then settles back while the new location loads.
+  SequentialAnimation {
+    id: pageSlide
+    property int direction: 1
+    ParallelAnimation {
+      NumberAnimation { target: weatherColumn; property: "x"; to: pageSlide.direction * Style.space(14); duration: 90; easing.type: Easing.OutQuad }
+      NumberAnimation { target: weatherColumn; property: "opacity"; to: 0.35; duration: 90; easing.type: Easing.OutQuad }
+    }
+    ParallelAnimation {
+      NumberAnimation { target: weatherColumn; property: "x"; to: 0; duration: 130; easing.type: Easing.OutQuad }
+      NumberAnimation { target: weatherColumn; property: "opacity"; to: 1; duration: 130; easing.type: Easing.OutQuad }
+    }
+  }
+
+  Timer {
+    id: cycleThrottle
+    interval: 250
   }
 
   // Village resolution decides the data path. A malformed response means
@@ -1084,6 +1128,38 @@ Panel {
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         interactive: contentHeight > height
+
+        // Carousel input: the wheel cycles while the body has nothing to
+        // scroll; a horizontal-dominant swipe anywhere that is not an
+        // interactive control pages too (this area sits beneath the
+        // content, so clicks pass through to the location editor).
+        WheelHandler {
+          id: bodyWheel
+          enabled: !weatherScroll.interactive && !root.editingLocation
+          property real accum: 0
+          onWheel: function(event) {
+            event.accepted = true
+            bodyWheel.accum += event.angleDelta.y
+            if (Math.abs(bodyWheel.accum) < 120) return
+            var dir = bodyWheel.accum < 0 ? 1 : -1
+            bodyWheel.accum = 0
+            root.cycleLocation(dir)
+          }
+        }
+
+        MouseArea {
+          anchors.fill: parent
+          enabled: !root.editingLocation
+          property real pressX: 0
+          property real pressY: 0
+          onPressed: function(mouse) { pressX = mouse.x; pressY = mouse.y }
+          onReleased: function(mouse) {
+            var dx = mouse.x - pressX
+            var dy = mouse.y - pressY
+            if (Math.abs(dx) > Style.space(48) && Math.abs(dx) > Math.abs(dy) * 2)
+              root.cycleLocation(dx < 0 ? 1 : -1)
+          }
+        }
 
         Column {
           id: weatherColumn
@@ -1765,6 +1841,45 @@ Panel {
                   }
                 }
               }
+            }
+          }
+        }
+      }
+
+      // ---- Carousel dots: one per recorded location, the active one
+      //      accented; a tap jumps straight there. Hidden below two
+      //      locations — a single dot is decoration and the cycle has
+      //      nowhere to go.
+      Row {
+        visible: root.recentLocations.length >= 2
+        anchors.horizontalCenter: parent.horizontalCenter
+        spacing: Style.space(8)
+
+        Repeater {
+          model: root.recentLocations
+
+          Item {
+            id: pageDot
+            required property var modelData
+            readonly property bool isActive: root.isCurrentRecent(pageDot.modelData)
+
+            width: Style.space(14)
+            height: Style.space(14)
+
+            Rectangle {
+              anchors.centerIn: parent
+              width: Style.space(6)
+              height: Style.space(6)
+              radius: width / 2
+              color: pageDot.isActive ? Commons.Color.accent : root.bar.foreground
+              opacity: pageDot.isActive ? 1 : 0.35
+              Behavior on opacity { NumberAnimation { duration: 120 } }
+            }
+
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.switchToRecent(pageDot.modelData)
             }
           }
         }

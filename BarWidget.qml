@@ -92,6 +92,24 @@ BarWidget {
     }
   }
 
+  // Wheel over the pill pages through locations without opening the
+  // popup (the Wetter-extension gesture): one detent per 120 angleDelta
+  // step. cycleLocation throttles internally, so a fast spin can't
+  // stack refetches.
+  property real wheelAccum: 0
+
+  WheelHandler {
+    enabled: panelLoader.item !== null
+    onWheel: function(event) {
+      event.accepted = true
+      root.wheelAccum += event.angleDelta.y
+      if (Math.abs(root.wheelAccum) < 120) return
+      var dir = root.wheelAccum < 0 ? 1 : -1
+      root.wheelAccum = 0
+      if (panelLoader.item && panelLoader.item.cycleLocation) panelLoader.item.cycleLocation(dir)
+    }
+  }
+
   BarIconButton {
     id: button
     // Anchored, not filled: with the temperature beside or under it the

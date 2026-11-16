@@ -4,6 +4,24 @@ Release history for the `cuaca.weather` bar plugin (versions track the
 plugin's `manifest.json`). Built and released in one working session on
 2026-10-28; each section notes the release that introduced the change.
 
+## 1.5.0 — 2026-11-16
+
+### Added
+- Location carousel: a horizontal swipe on the popup body, the wheel
+  over the popup (when its content doesn't scroll), and the wheel over
+  the bar pill each page through the recorded locations in list order.
+  A row of dots under the day strips shows position — the active one
+  accented, tap to jump — hidden below two locations. A step is a real
+  switch: the same commit path as a LOCATIONS row tap (weather.json
+  rewrite, cached-adm4 fast path, refetch), throttled to 250ms and
+  wrapped in a quick page-turn dip.
+
+### Changed
+- The recents list is insert-only: a switch updates its entry in place
+  instead of moving it to the front, so the carousel dots and the
+  dropdown rows hold their positions; only brand-new locations prepend
+  and the cap still drops the last row.
+
 ## 1.4.4 — 2026-11-16
 
 ### Fixed

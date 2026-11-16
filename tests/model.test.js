@@ -250,16 +250,31 @@ check("parseRecentLocations: valid rows", Model.parseRecentLocations(JSON.string
 check("parseRecentLocations: junk safe", [Model.parseRecentLocations(""), Model.parseRecentLocations("not json"), Model.parseRecentLocations("42"), Model.parseRecentLocations(JSON.stringify({ name: "x" }))].map(function (r) { return r.length }), [0, 0, 0, 0])
 check("parseRecentLocations: cleanup", Model.parseRecentLocations(JSON.stringify([{ adm4: "1" }, { name: "  Y  ", latitude: "x", adm4: 2 }])), [{ name: "Y", latitude: null, longitude: null, adm4: "2" }])
 check("recentLocationKey: adm4 wins", [Model.recentLocationKey({ name: "A", adm4: "9" }), Model.recentLocationKey({ name: " Bali " }), Model.recentLocationKey({ name: "bali" }), Model.recentLocationKey(null)], ["adm4:9", "name:bali", "name:bali", ""])
-check("commitRecentLocation: mru front", Model.commitRecentLocation([{ name: "A", adm4: "1" }], { name: "B", adm4: "2" }, 4), [
+check("commitRecentLocation: new entry prepends", Model.commitRecentLocation([{ name: "A", adm4: "1" }], { name: "B", adm4: "2" }, 4), [
   { name: "B", latitude: null, longitude: null, adm4: "2" },
   { name: "A", latitude: null, longitude: null, adm4: "1" }
 ])
-check("commitRecentLocation: recommit merges", Model.commitRecentLocation([
+check("commitRecentLocation: recommit updates in place", Model.commitRecentLocation([
   { name: "B", latitude: null, longitude: null, adm4: "2" },
   { name: "A", latitude: -7.6, longitude: 110.6, adm4: "1" }
 ], { name: "A", latitude: -7.61, longitude: 110.61 }, 4), [
-  { name: "A", latitude: -7.61, longitude: 110.61, adm4: "1" },
-  { name: "B", latitude: null, longitude: null, adm4: "2" }
+  { name: "B", latitude: null, longitude: null, adm4: "2" },
+  { name: "A", latitude: -7.61, longitude: 110.61, adm4: "1" }
+])
+check("commitRecentLocation: switch keeps position", Model.commitRecentLocation([
+  { name: "A", adm4: "1" }, { name: "B", adm4: "2" }, { name: "C", adm4: "3" }, { name: "D", adm4: "4" }
+], { name: "B", adm4: "2" }, 4), [
+  { name: "A", latitude: null, longitude: null, adm4: "1" },
+  { name: "B", latitude: null, longitude: null, adm4: "2" },
+  { name: "C", latitude: null, longitude: null, adm4: "3" },
+  { name: "D", latitude: null, longitude: null, adm4: "4" }
+])
+check("commitRecentLocation: name twin promotes in place", Model.commitRecentLocation([
+  { name: "A", adm4: "1" },
+  { name: "B", latitude: null, longitude: null }
+], { name: "B", latitude: -7.5, longitude: 110.5, adm4: "2" }, 4), [
+  { name: "A", latitude: null, longitude: null, adm4: "1" },
+  { name: "B", latitude: -7.5, longitude: 110.5, adm4: "2" }
 ])
 check("commitRecentLocation: cap drops oldest", Model.commitRecentLocation([
   { name: "A", adm4: "1" }, { name: "B", adm4: "2" }, { name: "C", adm4: "3" }
