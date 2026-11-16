@@ -66,6 +66,8 @@ these against the bindings — stale wireframes are worse than none.
  │     80% 75% 60% 40% 30% 20% 10%  5%                         │
  │   ↑ 12  ↗ 15  → 18  ↘ 22  ↓ 25  ↙ 28  ← 30  ↖ 32            │
  │                                                             │    night icons included
+ │  ─────────────── hairline (foreground @ 12%) ─────────────  │   ← day separators: same weight between every section
+ │                                                             │
  │  LUSA · RABU                                28° 23°         │
  │     00  03  06  09  12  15  18  21                          │
  │     (i) (i) (i) (i) (i) (i) (i) (i)                         │
@@ -192,4 +194,6 @@ of the live conditions (temp with unit, wind, humidity, rain as available);
 7. Future strips: BESOK/LUSA captions with day name + hi/lo; 8 slot columns
 8. Dropdown: LOCATIONS rows lead the card (above the six setting rows), active one accented, visible once a location is recorded; tapping one closes the dropdown and refetches.
    accented; tapping one closes the dropdown and refetches.
-   each (time/icon/temp/rain %/wind), night icons included.
+   each (time/icon/temp/rain %/wind), night icons included; a hairline
+   separates every pair of day sections (same weight as the divider above
+   BESOK).

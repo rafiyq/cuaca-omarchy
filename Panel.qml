@@ -1598,9 +1598,11 @@ Panel {
         font.italic: true
       }
 
-      // ---- Divider between current conditions and forecast.
+      // ---- Divider between current conditions and forecast. Also covers
+      //      the edge where tomorrow's grid is empty but the day after
+      //      still has slots — the LUSA strip keeps its top separator.
       Rectangle {
-        visible: root.usingCuaca && root.tomorrowSlots.length > 0
+        visible: root.usingCuaca && (root.tomorrowSlots.length > 0 || root.dayAfterSlots.length > 0)
         width: parent.width
         height: Style.spacing.hairline
         color: root.bar.foreground
@@ -1616,13 +1618,31 @@ Panel {
 
         Item {
           required property var modelData
+
+          // A hairline separates consecutive day strips — same weight as
+          // the divider above the first strip; shown only when the
+          // previous strip actually rendered.
+          readonly property bool showDivider: index > 0 && root.usingCuaca && root.futureStripModel[0].slots.length > 0
+
           visible: root.usingCuaca && modelData.slots.length > 0
           width: parent.width
-          height: stripHead.implicitHeight + Style.space(4) + futureRow.height
+          height: (showDivider ? Style.spacing.hairline + Style.space(14) : 0)
+                  + stripHead.implicitHeight + Style.space(4) + futureRow.height
+
+          Rectangle {
+            visible: parent.showDivider
+            anchors.top: parent.top
+            width: parent.width
+            height: Style.spacing.hairline
+            color: root.bar.foreground
+            opacity: 0.12
+          }
 
           Row {
             id: stripHead
             anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.top
+            anchors.topMargin: showDivider ? Style.spacing.hairline + Style.space(14) : 0
             spacing: Style.space(10)
 
             Text {

@@ -4,6 +4,15 @@ Release history for the `cuaca.weather` bar plugin (versions track the
 plugin's `manifest.json`). Built and released in one working session on
 2026-10-28; each section notes the release that introduced the change.
 
+## 1.4.3 — 2026-11-16
+
+### Added
+- Hairline separators between the popup's day sections: each future-day
+  strip (BESOK, LUSA) renders the same foreground @ 12% hairline the
+  today/BESOK divider uses, so every day boundary reads as its own
+  section. The today/LUSA edge also holds when tomorrow's slot grid is
+  empty but the day after still has slots.
+
 ## 1.4.2 — 2026-11-15
 
 ### Changed
