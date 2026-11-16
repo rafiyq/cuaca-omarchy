@@ -4,6 +4,16 @@ Release history for the `cuaca.weather` bar plugin (versions track the
 plugin's `manifest.json`). Built and released in one working session on
 2026-10-28; each section notes the release that introduced the change.
 
+## 1.4.4 — 2026-11-16
+
+### Fixed
+- The 1.4.3 day separators never rendered: the future-strip delegate
+  referenced the model `index` without declaring it, and the engine
+  (which does not expose delegate roles as context lookups) logged
+  `ReferenceError: index is not defined`, leaving the divider guard
+  silently false. The index is now a declared required property, the
+  same pattern every other delegate in the panel already uses.
+
 ## 1.4.3 — 2026-11-16
 
 ### Added

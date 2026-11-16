@@ -1618,6 +1618,7 @@ Panel {
 
         Item {
           required property var modelData
+          required property int index
 
           // A hairline separates consecutive day strips — same weight as
           // the divider above the first strip; shown only when the
