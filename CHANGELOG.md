@@ -4,6 +4,28 @@ Release history for the `cuaca.weather` bar plugin (versions track the
 plugin's `manifest.json`). Built and released in one working session on
 2026-10-28; each section notes the release that introduced the change.
 
+## 1.6.0 — 2026-11-18
+
+### Added
+- Per-location report cache (plan-B lite): villages are prefetched by a
+  sequential queue on open, on each refresh tick, and whenever recents
+  change — only stale or missing entries queue, so popup opens inside a
+  refresh epoch cost nothing, and entries dropped from the cap are
+  pruned. Every successful live fetch (cuaca or the wttr/open-meteo
+  fallback) also learns its location's entry, so a first visit makes
+  the next one instant.
+- Install-on-cycle: a carousel step whose location is cached paints
+  instantly — the body shows the target before the switch completes —
+  and the refresh that follows quietly overwrites with fresh data.
+  Warnings stay live-only; true cache misses keep the existing
+  fetch-then-arrive flow.
+
+### Fixed
+- The bar-pill wheel never fired: the shell's WidgetButton consumes
+  wheel events and re-emits them as its (until now unheard) wheelMoved
+  signal — the paging now rides that signal directly, plus a plain
+  onWheel on the temperature area, so the whole pill pages locations.
+
 ## 1.5.0 — 2026-11-16
 
 ### Added

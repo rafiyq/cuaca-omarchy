@@ -105,6 +105,22 @@ Panel {
   // refresh to skip the resolve round-trip.
   property string pendingAdm4: ""
 
+  // Per-location report cache (plan-B lite): key = Model.recentLocationKey.
+  // Villages carry { cuaca: <parsed forecast> }; wttr spots carry
+  // { wttr: <parsed>, daily: <open-meteo daily> }. Villages are prefetched
+  // by a sequential queue on open, on the refresh timer, and whenever
+  // recents change; every successful live fetch also learns its location's
+  // entry, so a first visit makes the next one instant. `at` timestamps
+  // gate re-prefetching to one refresh epoch.
+  property var pageReports: ({})
+  property var prefetchQueue: []
+  property string prefetchActiveKey: ""
+
+  function storeCachedReport(key, payload) {
+    payload.at = Date.now()
+    pageReports[key] = payload
+  }
+
   // Keep the previous report visible while the new location loads. The
   // editor remains open with a spinner, so stale data is never presented
   // under the newly configured location label.
@@ -146,7 +162,10 @@ Panel {
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
-    onLoaded: root.recentLocations = Model.parseRecentLocations(text())
+    onLoaded: {
+      root.recentLocations = Model.parseRecentLocations(text())
+      root.schedulePrefetch()
+    }
     onLoadFailed: root.recentLocations = Model.parseRecentLocations("")
   }
 
@@ -406,6 +425,7 @@ Panel {
     bmkgRetries = 0
     // The cuaca resolution decides which data path runs for this location.
     refreshBmkg()
+    schedulePrefetch()
   }
 
   // The cuaca (BMKG) worker covers Indonesian villages only. Extending the
@@ -681,6 +701,24 @@ Panel {
 
   function switchToRecent(entry) {
     if (!entry || !entry.name || isCurrentRecent(entry)) return
+    // Plan-B lite: a cached report paints the target before the switch
+    // completes — no loading window on revisits; the refresh that follows
+    // quietly overwrites with fresh data. Villages install their cuaca
+    // report, spots the wttr + open-meteo pair.
+    var cached = pageReports[Model.recentLocationKey(entry)]
+    if (cached) {
+      if (cached.cuaca && String(entry.adm4 || "") !== "") {
+        bmkgReport = cached.cuaca
+        resolvedAdm4 = String(entry.adm4)
+        usingCuaca = true
+        label = Model.currentIcon(Model.bmkgCurrentCondition(cached.cuaca), root.label, root.iconScheme)
+      } else if (cached.wttr && String(entry.adm4 || "") === "") {
+        report = cached.wttr
+        if (cached.daily) dailyForecastReport = cached.daily
+        usingCuaca = false
+        if (cached.daily) label = Model.currentIcon(Model.openMeteoCurrentCondition(cached.daily), root.label, root.iconScheme)
+      }
+    }
     // The hint must exist before the state assignment: onLocationQueryChanged
     // fires synchronously and schedules the refresh that consumes it.
     pendingAdm4 = String(entry.adm4 || "")
@@ -722,6 +760,53 @@ Panel {
 
   Process {
     id: recentsWriteProc
+  }
+
+  // ---- per-location report prefetch
+  // One sequential Process walks the villages' adm4 codes; each result
+  // lands in pageReports so a carousel step paints instantly. Only stale
+  // or missing entries queue, so popup opens inside a refresh epoch cost
+  // nothing, and entries dropped from the cap are pruned.
+  function schedulePrefetch() {
+    var keys = {}
+    for (var i = 0; i < recentLocations.length; i++) keys[Model.recentLocationKey(recentLocations[i])] = true
+    for (var k in pageReports) if (!keys[k]) delete pageReports[k]
+    var maxAge = root.refreshMinutes * 60 * 1000
+    prefetchQueue = recentLocations
+      .filter(function (e) { return String(e.adm4 || "") !== "" })
+      .map(function (e) { return { key: Model.recentLocationKey(e), adm4: String(e.adm4) } })
+      .filter(function (item) {
+        var cached = pageReports[item.key]
+        return !cached || !cached.cuaca || !cached.at || Date.now() - cached.at > maxAge
+      })
+    runNextPrefetch()
+  }
+
+  function runNextPrefetch() {
+    if (prefetchProc.running || prefetchQueue.length === 0) return
+    var item = prefetchQueue.shift()
+    prefetchActiveKey = item.key
+    prefetchProc.command = ["curl", "-fsS", "--max-time", "8",
+      "https://cuaca.wilayah.workers.dev/api/forecast?adm4=" + encodeURIComponent(item.adm4)]
+    prefetchProc.running = true
+  }
+
+  Process {
+    id: prefetchProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var raw = String(text || "").trim()
+        if (raw) {
+          try {
+            var parsed = JSON.parse(raw)
+            if (parsed && parsed.forecast && parsed.forecast.length)
+              root.storeCachedReport(root.prefetchActiveKey, { cuaca: parsed })
+          } catch (e) {}
+        }
+        Qt.callLater(root.runNextPrefetch)
+      }
+    }
   }
 
   // Debounced location search. The latest query always wins: the cuaca
@@ -962,6 +1047,7 @@ Panel {
             root.recordResolvedLocation(parsed.location)
           }
           root.bmkgReport = parsed
+          root.storeCachedReport(Model.recentLocationKey({ name: root.configuredLocationState.name, adm4: root.resolvedAdm4 }), { cuaca: parsed })
           root.label = Model.currentIcon(Model.bmkgCurrentCondition(parsed), root.label, root.iconScheme)
           root.writeReportCache()
           root.bmkgRetries = 0
@@ -1004,6 +1090,8 @@ Panel {
           var parsed = JSON.parse(raw)
           var parsedCurrent = Model.openMeteoCurrentCondition(parsed)
           root.dailyForecastReport = parsed
+          if (!root.usingCuaca)
+            root.storeCachedReport(Model.recentLocationKey({ name: root.configuredLocationState.name }), { wttr: root.report, daily: parsed })
           root.label = Model.currentIcon(parsedCurrent, root.label, root.iconScheme)
           root.dailyForecastRetries = 0
           if (Model.weatherResponseCompletesSave(root.usingCuaca, root.hasConfiguredCoordinates, "open-meteo"))

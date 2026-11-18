@@ -93,25 +93,25 @@ BarWidget {
   }
 
   // Wheel over the pill pages through locations without opening the
-  // popup (the Wetter-extension gesture): one detent per 120 angleDelta
-  // step. cycleLocation throttles internally, so a fast spin can't
-  // stack refetches.
+  // popup (the Wetter-extension gesture). WidgetButton's own MouseArea
+  // consumes wheel events and re-emits them as its wheelMoved signal —
+  // the only listener — so the paging hooks ride that signal (plus a
+  // plain onWheel on the temperature area). One detent per 120
+  // angleDelta step; cycleLocation throttles internally, so a fast
+  // spin can't stack refetches.
   property real wheelAccum: 0
 
-  WheelHandler {
-    enabled: panelLoader.item !== null
-    onWheel: function(event) {
-      event.accepted = true
-      root.wheelAccum += event.angleDelta.y
-      if (Math.abs(root.wheelAccum) < 120) return
-      var dir = root.wheelAccum < 0 ? 1 : -1
-      root.wheelAccum = 0
-      if (panelLoader.item && panelLoader.item.cycleLocation) panelLoader.item.cycleLocation(dir)
-    }
+  function pageByWheel(delta) {
+    wheelAccum += delta
+    if (Math.abs(wheelAccum) < 120) return
+    var dir = wheelAccum < 0 ? 1 : -1
+    wheelAccum = 0
+    if (panelLoader.item && panelLoader.item.cycleLocation) panelLoader.item.cycleLocation(dir)
   }
 
   BarIconButton {
     id: button
+    onWheelMoved: function(delta) { root.pageByWheel(delta) }
     // Anchored, not filled: with the temperature beside or under it the
     // root is larger than the slot, and a fill would stretch the fixed
     // glyph slot. x defaults to 0; horizontal mode is left-aligned at the
@@ -164,6 +164,7 @@ BarWidget {
     MouseArea {
       anchors.fill: parent
       cursorShape: Qt.PointingHandCursor
+      onWheel: function(wheel) { root.pageByWheel(wheel.angleDelta.y) }
       onPressed: function(b) {
         if (!root.bar) return
         if (b === Qt.RightButton) root.notifyStatus()

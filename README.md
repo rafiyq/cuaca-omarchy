@@ -61,8 +61,10 @@ feels-like temperature.
   each step pages through the recorded locations in list order. The dots
   under the day strips show position (the active one accented, tap to
   jump); a step is a real switch, same path as a row tap, with a quick
-  page-turn dip. Switches keep the list order — only new locations
-  prepend (insert-only recents)
+  page-turn dip. Reports are prefetched for the recorded villages (and
+  learned from every fetch), so revisits paint instantly and the fetch
+  that follows only refreshes in the background. Switches keep the list
+  order — only new locations prepend (insert-only recents)
 - The bar pill shows the current temperature beside the icon once data
   lands (stacked under it in vertical bars), rounded to an integer and
   honoring the unit setting; `pillTemp: off` collapses the pill back to
