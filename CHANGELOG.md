@@ -4,6 +4,19 @@ Release history for the `cuaca.weather` bar plugin (versions track the
 plugin's `manifest.json`). Built and released in one working session on
 2026-10-28; each section notes the release that introduced the change.
 
+## 1.6.1 — 2026-11-18
+
+### Fixed
+- The instant paint on cached switches never actually survived: the
+  configured-location change handler — which fires synchronously during
+  every switch — wiped the just-installed report along with the old
+  location's state, so every step still went blank and waited on a full
+  network round-trip. The handler now preserves a cached install (its
+  report belongs to the target location) and keeps the wipe for
+  uncached switches; warnings stay live-only and still clear either way.
+- Cached carousel steps no longer play the page-turn dip — the swap is
+  instant; the dip now only covers a true miss.
+
 ## 1.6.0 — 2026-11-18
 
 ### Added

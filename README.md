@@ -60,8 +60,9 @@ feels-like temperature.
   over it (when its content doesn't scroll), or wheel over the bar pill —
   each step pages through the recorded locations in list order. The dots
   under the day strips show position (the active one accented, tap to
-  jump); a step is a real switch, same path as a row tap, with a quick
-  page-turn dip. Reports are prefetched for the recorded villages (and
+  jump); a step is a real switch, same path as a row tap — cached steps
+  swap instantly, a true miss gets a quick page-turn dip while the fetch
+  lands. Reports are prefetched for the recorded villages (and
   learned from every fetch), so revisits paint instantly and the fetch
   that follows only refreshes in the background. Switches keep the list
   order — only new locations prepend (insert-only recents)

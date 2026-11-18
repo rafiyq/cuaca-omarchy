@@ -116,6 +116,11 @@ Panel {
   property var prefetchQueue: []
   property string prefetchActiveKey: ""
 
+  // True only during the synchronous window in which switchToRecent has
+  // installed a cached report and the configured-location assignment
+  // fires onLocationQueryChanged: the handler must not wipe the install.
+  property bool cachedInstallActive: false
+
   function storeCachedReport(key, payload) {
     payload.at = Date.now()
     pageReports[key] = payload
@@ -133,12 +138,21 @@ Panel {
     dailyForecastProc.running = false
     bmkgResolveProc.running = false
     bmkgForecastProc.running = false
+    // Warnings are live-only and location-bound: the previous banner
+    // must not ride along (cached installs carry none of it).
+    bmkgWarnings = []
+    if (cachedInstallActive) {
+      // The on-screen report belongs to the target location — wiping it
+      // would reintroduce the loading window the cache exists to
+      // prevent. Keep it; the refresh below only refreshes.
+      Qt.callLater(refresh)
+      return
+    }
     // The new location must resolve on its own terms; mixing the old
     // village's report under it is worse than a blank while loading.
     resolvedAdm4 = ""
     usingCuaca = false
     bmkgReport = null
-    bmkgWarnings = []
     Qt.callLater(refresh)
   }
 
@@ -706,17 +720,20 @@ Panel {
     // quietly overwrites with fresh data. Villages install their cuaca
     // report, spots the wttr + open-meteo pair.
     var cached = pageReports[Model.recentLocationKey(entry)]
+    var installed = false
     if (cached) {
       if (cached.cuaca && String(entry.adm4 || "") !== "") {
         bmkgReport = cached.cuaca
         resolvedAdm4 = String(entry.adm4)
         usingCuaca = true
         label = Model.currentIcon(Model.bmkgCurrentCondition(cached.cuaca), root.label, root.iconScheme)
+        installed = true
       } else if (cached.wttr && String(entry.adm4 || "") === "") {
         report = cached.wttr
         if (cached.daily) dailyForecastReport = cached.daily
         usingCuaca = false
         if (cached.daily) label = Model.currentIcon(Model.openMeteoCurrentCondition(cached.daily), root.label, root.iconScheme)
+        installed = true
       }
     }
     // The hint must exist before the state assignment: onLocationQueryChanged
@@ -724,11 +741,17 @@ Panel {
     pendingAdm4 = String(entry.adm4 || "")
     savingLocation = true
     savingLocationQueryStarted = false
+    // That same handler wipes the report for uncached switches (a fresh
+    // location must not ride the old village's data). A cached install
+    // already shows the target's own report — flag it so the synchronous
+    // handler fire preserves the paint, then unflag.
+    cachedInstallActive = installed
     configuredLocationState = {
       name: String(entry.name),
       latitude: entry.latitude === undefined ? null : entry.latitude,
       longitude: entry.longitude === undefined ? null : entry.longitude
     }
+    cachedInstallActive = false
     persistLocation(String(entry.name), entry.latitude === undefined ? null : entry.latitude, entry.longitude === undefined ? null : entry.longitude)
     saveRecentLocations(Model.commitRecentLocation(recentLocations, entry, 4))
     settingsOpen = false
@@ -752,9 +775,14 @@ Panel {
     if (n < 2) return
     if (cycleThrottle.running) return
     cycleThrottle.restart()
-    pageSlide.direction = dir
-    pageSlide.restart()
     var target = (currentLocationIndex() + dir + n) % n
+    // A cached step swaps instantly — no page-turn; the dip only covers
+    // a true miss, where the content visibly changes when the fetch
+    // lands.
+    if (!pageReports[Model.recentLocationKey(recentLocations[target])]) {
+      pageSlide.direction = dir
+      pageSlide.restart()
+    }
     switchToRecent(recentLocations[target])
   }
 
