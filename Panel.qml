@@ -722,8 +722,20 @@ Panel {
     return String(entry.name) === String(configuredLocationState.name)
   }
 
-  function switchToRecent(entry) {
+  function switchToRecent(entry, dir) {
     if (!entry || !entry.name || isCurrentRecent(entry)) return
+    // Page-turn direction: gesture callers (wheel, swipe, pill) pass it
+    // through, so a forward wrap keeps sliding forward; taps without a
+    // gesture (dots, rows) derive it from the index delta — a dot to
+    // the right arrives from the right. Both indices are captured here,
+    // before the state swap below moves the current-location identity.
+    var prevIndex = currentLocationIndex()
+    var key = Model.recentLocationKey(entry)
+    var nextIndex = -1
+    for (var i = 0; i < recentLocations.length; i++)
+      if (Model.recentLocationKey(recentLocations[i]) === key) { nextIndex = i; break }
+    if (dir === undefined || dir === 0)
+      dir = (prevIndex === -1 || nextIndex === -1) ? 0 : (nextIndex > prevIndex ? 1 : -1)
     // Plan-B lite: a cached report paints the target before the switch
     // completes — no loading window on revisits; the refresh that follows
     // quietly overwrites with fresh data. Villages install their cuaca
@@ -761,6 +773,14 @@ Panel {
       longitude: entry.longitude === undefined ? null : entry.longitude
     }
     cachedInstallActive = false
+    // Page turn: the swap has landed — slide the arriving page in from
+    // its direction of travel and fade it up.
+    if (dir !== 0) {
+      pageTurn.direction = dir
+      weatherColumn.x = dir * Style.space(24)
+      weatherColumn.opacity = 0.25
+      pageTurn.restart()
+    }
     persistLocation(String(entry.name), entry.latitude === undefined ? null : entry.latitude, entry.longitude === undefined ? null : entry.longitude)
     saveRecentLocations(Model.commitRecentLocation(recentLocations, entry, 4))
     settingsOpen = false
@@ -785,14 +805,7 @@ Panel {
     if (cycleThrottle.running) return
     cycleThrottle.restart()
     var target = (currentLocationIndex() + dir + n) % n
-    // A cached step swaps instantly — no page-turn; the dip only covers
-    // a true miss, where the content visibly changes when the fetch
-    // lands.
-    if (!pageReports[Model.recentLocationKey(recentLocations[target])]) {
-      pageSlide.direction = dir
-      pageSlide.restart()
-    }
-    switchToRecent(recentLocations[target])
+    switchToRecent(recentLocations[target], dir)
   }
 
   Process {
@@ -1024,17 +1037,15 @@ Panel {
 
   // Page-turn for carousel switches: the body dips toward the swipe
   // direction and fades, then settles back while the new location loads.
-  SequentialAnimation {
-    id: pageSlide
+  // Page turn: the arriving page slides in from its direction of travel
+  // and fades up. Purely cosmetic and always started after the state
+  // swap, so it can never gate or delay the paint. Rapid paging can't
+  // overlap: the 250ms cycle throttle outlasts the 140ms tween.
+  ParallelAnimation {
+    id: pageTurn
     property int direction: 1
-    ParallelAnimation {
-      NumberAnimation { target: weatherColumn; property: "x"; to: pageSlide.direction * Style.space(14); duration: 90; easing.type: Easing.OutQuad }
-      NumberAnimation { target: weatherColumn; property: "opacity"; to: 0.35; duration: 90; easing.type: Easing.OutQuad }
-    }
-    ParallelAnimation {
-      NumberAnimation { target: weatherColumn; property: "x"; to: 0; duration: 130; easing.type: Easing.OutQuad }
-      NumberAnimation { target: weatherColumn; property: "opacity"; to: 1; duration: 130; easing.type: Easing.OutQuad }
-    }
+    NumberAnimation { target: weatherColumn; property: "x"; to: 0; duration: 140; easing.type: Easing.OutCubic }
+    NumberAnimation { target: weatherColumn; property: "opacity"; to: 1; duration: 140; easing.type: Easing.OutCubic }
   }
 
   Timer {

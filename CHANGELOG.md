@@ -4,6 +4,19 @@ Release history for the `cuaca.weather` bar plugin (versions track the
 plugin's `manifest.json`). Built and released in one working session on
 2026-10-28; each section notes the release that introduced the change.
 
+## 1.6.5 — 2026-11-20
+
+### Added
+- Directional page-turn: every location switch lands with a 140ms
+  slide-in — the arriving page starts 24px from its direction of travel
+  at 25% opacity and settles to rest. The direction follows the motion:
+  gesture callers (wheel, swipe, pill) pass it through, so a forward
+  wrap keeps sliding forward, and dot/row taps derive it from the index
+  delta — a dot to the right arrives from the right. The swap stays
+  synchronous: the animation is cosmetic, layered after the paint, and
+  can never delay it (replacing the v1.5.0 dip, which only ran on
+  cache misses).
+
 ## 1.6.4 — 2026-11-19
 
 ### Changed

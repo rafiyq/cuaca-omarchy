@@ -204,5 +204,5 @@ of the live conditions (temp with unit, wind, humidity, rain as available);
    BESOK).
 9. Carousel: swipe the popup body or scroll over it left/right (up/down never
    pages; it scrolls only when the card overflows); the bar pill pages the same
-   way. Dots under the strips show position, tap to jump; switches update in
-   place (insert-only).
+   way. Switches land with a 140ms directional slide-in. Dots under the strips
+   show position, tap to jump; switches update in place (insert-only).
