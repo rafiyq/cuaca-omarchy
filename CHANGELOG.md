@@ -4,6 +4,23 @@ Release history for the `cuaca.weather` bar plugin (versions track the
 plugin's `manifest.json`). Built and released in one working session on
 2026-10-28; each section notes the release that introduced the change.
 
+## 1.6.2 — 2026-11-19
+
+### Fixed
+- Wheel paging starved on touchpads: every wheel path sat behind a
+  120-angleDelta accumulator — a mouse-detent assumption — while
+  Wayland touchpads deliver streams of small per-frame deltas that
+  never reach it. The shell's own volume slider, which steps on any
+  nonzero delta, worked on the same events, exposing the split.
+  Paging is now slider-style on both the pill and the popup body: any
+  nonzero delta pages once (direction from its sign), with
+  cycleLocation's 250ms throttle as the rate limiter, and angleDelta
+  falls back to pixelDelta so pure-pixel devices still page.
+- The popup body's pager moves off WheelHandler (which never fired
+  here) onto the existing under-content MouseArea — the slider-proven
+  mechanism — and rejects wheel events when the content overflows so
+  the Flickable's native momentum scrolling takes over.
+
 ## 1.6.1 — 2026-11-18
 
 ### Fixed

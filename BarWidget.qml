@@ -96,17 +96,20 @@ BarWidget {
   // popup (the Wetter-extension gesture). WidgetButton's own MouseArea
   // consumes wheel events and re-emits them as its wheelMoved signal —
   // the only listener — so the paging hooks ride that signal (plus a
-  // plain onWheel on the temperature area). One detent per 120
-  // angleDelta step; cycleLocation throttles internally, so a fast
-  // spin can't stack refetches.
-  property real wheelAccum: 0
+  // plain onWheel on the temperature area). Slider-style: any nonzero
+  // delta pages once — no 120-detent accumulator, which a touchpad's
+  // small per-frame angleDelta never reaches (the shell's volume
+  // slider, stepping on any nonzero delta, is the working precedent on
+  // this input). cycleLocation's 250ms throttle is the rate limiter.
+  function pageByWheelEvent(wheel) {
+    var dy = wheel.angleDelta.y !== 0 ? wheel.angleDelta.y : wheel.pixelDelta.y
+    if (dy === 0) return
+    pageByWheel(dy)
+  }
 
   function pageByWheel(delta) {
-    wheelAccum += delta
-    if (Math.abs(wheelAccum) < 120) return
-    var dir = wheelAccum < 0 ? 1 : -1
-    wheelAccum = 0
-    if (panelLoader.item && panelLoader.item.cycleLocation) panelLoader.item.cycleLocation(dir)
+    if (!delta) return
+    if (panelLoader.item && panelLoader.item.cycleLocation) panelLoader.item.cycleLocation(delta < 0 ? 1 : -1)
   }
 
   BarIconButton {
@@ -164,7 +167,7 @@ BarWidget {
     MouseArea {
       anchors.fill: parent
       cursorShape: Qt.PointingHandCursor
-      onWheel: function(wheel) { root.pageByWheel(wheel.angleDelta.y) }
+      onWheel: function(wheel) { root.pageByWheelEvent(wheel) }
       onPressed: function(b) {
         if (!root.bar) return
         if (b === Qt.RightButton) root.notifyStatus()

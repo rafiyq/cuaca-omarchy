@@ -1245,29 +1245,27 @@ Panel {
         boundsBehavior: Flickable.StopAtBounds
         interactive: contentHeight > height
 
-        // Carousel input: the wheel cycles while the body has nothing to
-        // scroll; a horizontal-dominant swipe anywhere that is not an
-        // interactive control pages too (this area sits beneath the
-        // content, so clicks pass through to the location editor).
-        WheelHandler {
-          id: bodyWheel
-          enabled: !weatherScroll.interactive && !root.editingLocation
-          property real accum: 0
-          onWheel: function(event) {
-            event.accepted = true
-            bodyWheel.accum += event.angleDelta.y
-            if (Math.abs(bodyWheel.accum) < 120) return
-            var dir = bodyWheel.accum < 0 ? 1 : -1
-            bodyWheel.accum = 0
-            root.cycleLocation(dir)
-          }
-        }
-
+        // Carousel input: the wheel pages on any nonzero delta —
+        // slider-style, after the shell's volume-slider precedent —
+        // instead of a WheelHandler whose 120-detent accumulator
+        // touchpad deltas never reach. When the content overflows, the
+        // wheel must scroll the card instead: the event is rejected so
+        // the Flickable's native wheel scrolling takes over. A
+        // horizontal-dominant swipe anywhere that is not an interactive
+        // control pages too (this area sits beneath the content, so
+        // clicks pass through to the location editor).
         MouseArea {
           anchors.fill: parent
           enabled: !root.editingLocation
           property real pressX: 0
           property real pressY: 0
+          onWheel: function(wheel) {
+            var dy = wheel.angleDelta.y !== 0 ? wheel.angleDelta.y : wheel.pixelDelta.y
+            if (dy === 0) return
+            if (weatherScroll.interactive) { wheel.accepted = false; return }
+            wheel.accepted = true
+            root.cycleLocation(dy < 0 ? 1 : -1)
+          }
           onPressed: function(mouse) { pressX = mouse.x; pressY = mouse.y }
           onReleased: function(mouse) {
             var dx = mouse.x - pressX
