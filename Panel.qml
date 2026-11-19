@@ -329,11 +329,20 @@ Panel {
   readonly property string reportLocation: (bmkgLocationInfo && bmkgLocationInfo.desa) ? String(bmkgLocationInfo.desa) : configuredLocation || (areaInfo && areaInfo.areaName && areaInfo.areaName[0] ? areaInfo.areaName[0].value : "")
   readonly property string reportTempNum:   current ? String(useImperial ? current.temp_F : current.temp_C) : ""
   readonly property string tempUnit:        "°" + (useImperial ? "F" : "C")
-  // Compact temperature for the bar pill. Empty until conditions land and
-  // the pillTemp setting is on; rounded to an integer the way the bar wants
-  // it (the popup hero keeps its own display).
+  // Compact bar-pill label: "27°C at <location>". Empty until conditions
+  // land and the pillTemp setting is on; the temperature is rounded to an
+  // integer the way the bar wants it (the popup hero keeps its own
+  // display). The location makes multi-location switching readable at a
+  // glance — truncated past 14 chars so long village names can't bloat
+  // the bar — and drops away while the location is auto/unresolved.
+  readonly property string pillLocation: {
+    var name = String(configuredLocation || "").trim()
+    if (name === "") return ""
+    if (name.length > 14) name = name.slice(0, 13) + "…"
+    return " at " + name
+  }
   readonly property string pillTempText: (String(setting("pillTemp", "on")).toLowerCase() !== "off" && reportTempNum !== "")
-    ? roundedTemp(reportTempNum) + tempUnit : ""
+    ? roundedTemp(reportTempNum) + tempUnit + pillLocation : ""
   // Hand-editable widget settings (inline on the `{"id": "cuaca.weather"}`
   // bar layout entry in ~/.config/omarchy/shell.json — the settings-form
   // renderer is still shell-side). Condition language: BMKG's native
@@ -1245,38 +1254,31 @@ Panel {
         boundsBehavior: Flickable.StopAtBounds
         interactive: contentHeight > height
 
-        // Carousel input: the wheel pages on any nonzero delta —
-        // slider-style, after the shell's volume-slider precedent —
-        // with the dominant axis winning, so two-finger left/right
-        // pages just like up/down (scroll left = next, matching the
-        // swipe). When the content overflows, a vertical gesture must
-        // scroll the card instead: the event is rejected so the
-        // Flickable's native wheel scrolling takes over, while
-        // horizontal gestures keep paging. A horizontal-dominant swipe
-        // anywhere that is not an interactive control pages too (this
-        // area sits beneath the content, so clicks pass through to the
-        // location editor).
+        // Carousel input: the wheel pages horizontally only — two-finger
+        // left/right, scroll left = next (matching the swipe), slider-
+        // style after the shell's volume-slider precedent. Up/down
+        // never pages: over an overflowing card the event is rejected
+        // so the Flickable's native wheel scrolling takes over, and
+        // over a fitting card it does nothing. A horizontal-dominant
+        // swipe anywhere that is not an interactive control pages too
+        // (this area sits beneath the content, so clicks pass through
+        // to the location editor).
         MouseArea {
           anchors.fill: parent
           enabled: !root.editingLocation
           property real pressX: 0
           property real pressY: 0
           onWheel: function(wheel) {
-            var dx = wheel.angleDelta.x, dy = wheel.angleDelta.y
-            var d = Math.abs(dx) >= Math.abs(dy) ? dx : dy
-            if (d === 0) {
-              var px = wheel.pixelDelta.x, py = wheel.pixelDelta.y
-              d = Math.abs(px) >= Math.abs(py) ? px : py
-            }
-            if (d === 0) return
-            // Vertical gestures over overflowing content belong to the
-            // card's own scrolling; horizontal always pages.
-            if (weatherScroll.interactive && Math.abs(dx) < Math.abs(dy)) {
-              wheel.accepted = false
-              return
-            }
+            // Horizontal only: left/right pages (scroll left = next,
+            // matching the swipe). Vertical gestures never page — when
+            // the card overflows they are rejected so its own native
+            // scrolling takes over, and when it fits they do nothing.
+            // The dominance test keeps noisy diagonals from paging.
+            var dx = wheel.angleDelta.x !== 0 ? wheel.angleDelta.x : wheel.pixelDelta.x
+            var dy = wheel.angleDelta.y !== 0 ? wheel.angleDelta.y : wheel.pixelDelta.y
+            if (dx === 0 || Math.abs(dx) < Math.abs(dy)) return
             wheel.accepted = true
-            root.cycleLocation(d < 0 ? 1 : -1)
+            root.cycleLocation(dx < 0 ? 1 : -1)
           }
           onPressed: function(mouse) { pressX = mouse.x; pressY = mouse.y }
           onReleased: function(mouse) {

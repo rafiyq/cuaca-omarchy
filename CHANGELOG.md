@@ -4,6 +4,21 @@ Release history for the `cuaca.weather` bar plugin (versions track the
 plugin's `manifest.json`). Built and released in one working session on
 2026-10-28; each section notes the release that introduced the change.
 
+## 1.6.4 — 2026-11-19
+
+### Changed
+- Wheel paging is horizontal-only: two-finger left/right pages on the
+  pill and the popup body; up/down never pages — over an overflowing
+  card it scrolls natively, otherwise it does nothing (the dominance
+  test keeps noisy diagonals from paging). The pill's wheelMoved
+  fallback went with it: the shell signal only ever carried the
+  vertical axis.
+- The pill reads `27°C at <location>` — temperature plus the configured
+  location's name, truncated past 14 characters — so multi-location
+  switching is readable at a glance. The name drops away while the
+  location is auto/unresolved; `pillTemp: off` still collapses the pill
+  to the icon alone.
+
 ## 1.6.3 — 2026-11-19
 
 ### Added

@@ -10,18 +10,19 @@ these against the bindings — stale wireframes are worse than none.
 ## 1 — Bar pill, horizontal bar (3 states)
 
 ```
- pillTemp: on + data landed      no-data window / pillTemp: off     with active BMKG warnings
- ┌──────────┬───→│←─┐             ┌────────┐                         ┌∙────────┬───→│←─┐
- │  (icon)  │ 28°C  │             │ (icon) │                         ││ (icon) │ 28°C  │
- └──────────┴───────┘             └────────┘                         └─────────┴───────┘
-    21px    gap 6   caption 10px       21px only                       21px
+ pillTemp: on + data landed        no-data window / pillTemp: off     with active BMKG warnings
+ ┌──────────┬───────────────────┐  ┌────────┐                         ┌∙────────┬────────→│←────────┐
+ │  (icon)  │ 28°C at Bangkle   │  │ (icon) │                         ││ (icon) │ 28°C at Bangkle   │
+ └──────────┴───────────────────┘  └────────┘                         └─────────┴───────────────────┘
+    21px    gap 6   caption 10px  21px only                          21px
 ```
 
 - Icon slot = `Style.bar.statusSlot` = 21px fixed; glyph = current conditions
   (nerd font or emoji per `iconScheme`).
-- Temp = `28°C` (integer-rounded, unit from the `unit` setting), caption 10px,
-  full foreground. Empty until the first fetch of a session lands, or forever
-  with `pillTemp: off` — the pill stays icon-only either way.
+- Temp + location = `28°C at Bangkle` (integer-rounded, unit from the `unit`
+  setting; the name truncates past 14 chars), caption 10px, full foreground.
+  Empty until the first fetch of a session lands, or forever with `pillTemp:
+  off` — the pill stays icon-only either way.
 - Warning dot = 5×5, radius 2.5, top-right of the icon button (5px margins),
   1px border in bar background, urgent tone. It hugs the icon, not the pill —
   it does not move when the temp widens the root.
@@ -33,9 +34,9 @@ these against the bindings — stale wireframes are worse than none.
 ```
    ┌────────┐
    │ (icon) │   ← 21px slot, horizontally centered
-   ├─┬──────┤     gap 3px
-   │ │ 28°C │   ← caption 10px, centered under the icon
-   └─┴──────┘
+   ├─┬──────────────────┤     gap 3px
+   │ │ 28°C at Bangkle  │   ← caption 10px, centered under the icon
+   └─┴──────────────────┘
 ```
 
 ## 3 — Popup, normal (data loaded)
@@ -201,7 +202,7 @@ of the live conditions (temp with unit, wind, humidity, rain as available);
    each (time/icon/temp/rain %/wind), night icons included; a hairline
    separates every pair of day sections (same weight as the divider above
    BESOK).
-9. Carousel: swipe the popup body, scroll over it (left/right pages, up/down pages
-   unless the card overflows — then it scrolls), or scroll over the bar pill — each
-   step pages through the recorded locations; dots under the strips show position,
-   tap to jump; switches update in place (insert-only).
+9. Carousel: swipe the popup body or scroll over it left/right (up/down never
+   pages; it scrolls only when the card overflows); the bar pill pages the same
+   way. Dots under the strips show position, tap to jump; switches update in
+   place (insert-only).

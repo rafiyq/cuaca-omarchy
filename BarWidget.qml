@@ -93,25 +93,21 @@ BarWidget {
   }
 
   // Wheel over the pill pages through locations without opening the
-  // popup (the Wetter-extension gesture). WidgetButton's own MouseArea
-  // consumes wheel events and re-emits them as its wheelMoved signal —
-  // the only listener — so the paging hooks ride that signal (plus a
-  // plain onWheel on the temperature area). Slider-style: any nonzero
-  // delta pages once — no 120-detent accumulator, which a touchpad's
-  // small per-frame angleDelta never reaches (the shell's volume
-  // slider, stepping on any nonzero delta, is the working precedent on
-  // this input). cycleLocation's 250ms throttle is the rate limiter.
-  // Dominant-axis delta: a horizontal two-finger scroll (angleDelta.x)
-  // pages exactly like a vertical one — scroll left = next, matching
-  // the swipe convention — with the same per-axis pixelDelta fallback.
+  // popup (the Wetter-extension gesture). The icon's wheel rides the
+  // NoButton overlay below; the temperature area has its own onWheel.
+  // Slider-style: any nonzero horizontal delta pages once — no
+  // 120-detent accumulator, which a touchpad's small per-frame
+  // angleDelta never reaches (the shell's volume slider, stepping on
+  // any nonzero delta, is the working precedent on this input).
+  // cycleLocation's 250ms throttle is the rate limiter.
+  // Horizontal only: left/right pages (scroll left = next, matching
+  // the swipe); up/down never does. The dominance test keeps noisy
+  // diagonals from paging, and pixelDelta covers pure-pixel devices.
   function pageByWheelEvent(wheel) {
-    var dx = wheel.angleDelta.x, dy = wheel.angleDelta.y
-    var d = Math.abs(dx) >= Math.abs(dy) ? dx : dy
-    if (d === 0) {
-      var px = wheel.pixelDelta.x, py = wheel.pixelDelta.y
-      d = Math.abs(px) >= Math.abs(py) ? px : py
-    }
-    pageByWheel(d)
+    var dx = wheel.angleDelta.x !== 0 ? wheel.angleDelta.x : wheel.pixelDelta.x
+    var dy = wheel.angleDelta.y !== 0 ? wheel.angleDelta.y : wheel.pixelDelta.y
+    if (dx === 0 || Math.abs(dx) < Math.abs(dy)) return
+    pageByWheel(dx)
   }
 
   function pageByWheel(delta) {
@@ -121,7 +117,6 @@ BarWidget {
 
   BarIconButton {
     id: button
-    onWheelMoved: function(delta) { root.pageByWheel(delta) }
     // Anchored, not filled: with the temperature beside or under it the
     // root is larger than the slot, and a fill would stretch the fixed
     // glyph slot. x defaults to 0; horizontal mode is left-aligned at the
@@ -142,9 +137,9 @@ BarWidget {
   }
 
   // Wheel-only overlay on the icon: the shell's WidgetButton re-emits
-  // wheel as wheelMoved(angleDelta.y) — the horizontal axis never
-  // survives that hop, and the shell code is read-only. With
-  // acceptedButtons: NoButton this area takes wheel events with both
+  // wheel as wheelMoved(angleDelta.y) — vertical-only, and paging is
+  // horizontal-only now — so this overlay is the icon's wheel path.
+  // With acceptedButtons: NoButton it takes wheel events with both
   // axes intact while presses and hover fall through to the button
   // beneath (clicks, middle-click refresh, tooltip).
   MouseArea {
