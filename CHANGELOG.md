@@ -4,6 +4,20 @@ Release history for the `cuaca.weather` bar plugin (versions track the
 plugin's `manifest.json`). Built and released in one working session on
 2026-10-28; each section notes the release that introduced the change.
 
+## 1.6.3 — 2026-11-19
+
+### Added
+- Horizontal wheel paging: two-finger left/right now pages locations
+  on both the pill and the popup body — scroll left = next, matching
+  the swipe convention. Each wheel event's dominant axis wins (with a
+  per-axis pixelDelta fallback), so diagonal gestures resolve cleanly
+  and vertical keeps its existing behavior: paging when the card fits,
+  native scrolling when it overflows.
+- The pill's icon gains a wheel-only overlay (acceptedButtons: NoButton,
+  transparent to clicks and hover) because the shell's WidgetButton
+  re-emits wheel as wheelMoved(angleDelta.y) — the horizontal axis
+  never survives that hop and the shell code is read-only.
+
 ## 1.6.2 — 2026-11-19
 
 ### Fixed

@@ -56,8 +56,9 @@ feels-like temperature.
 - Tapping a LOCATIONS row in the settings dropdown switches to that
   location instantly (cached adm4, no resolve round-trip; the dropdown
   closes)
-- The popup is a location carousel: swipe the body horizontally, wheel
-  over it (when its content doesn't scroll), or wheel over the bar pill —
+- The popup is a location carousel: swipe the body horizontally, scroll
+  over it (left/right pages, up/down pages too — unless the card
+  overflows, where up/down scrolls), or scroll over the bar pill —
   each step pages through the recorded locations in list order. The dots
   under the day strips show position (the active one accented, tap to
   jump); a step is a real switch, same path as a row tap — cached steps

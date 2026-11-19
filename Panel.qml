@@ -1247,24 +1247,36 @@ Panel {
 
         // Carousel input: the wheel pages on any nonzero delta —
         // slider-style, after the shell's volume-slider precedent —
-        // instead of a WheelHandler whose 120-detent accumulator
-        // touchpad deltas never reach. When the content overflows, the
-        // wheel must scroll the card instead: the event is rejected so
-        // the Flickable's native wheel scrolling takes over. A
-        // horizontal-dominant swipe anywhere that is not an interactive
-        // control pages too (this area sits beneath the content, so
-        // clicks pass through to the location editor).
+        // with the dominant axis winning, so two-finger left/right
+        // pages just like up/down (scroll left = next, matching the
+        // swipe). When the content overflows, a vertical gesture must
+        // scroll the card instead: the event is rejected so the
+        // Flickable's native wheel scrolling takes over, while
+        // horizontal gestures keep paging. A horizontal-dominant swipe
+        // anywhere that is not an interactive control pages too (this
+        // area sits beneath the content, so clicks pass through to the
+        // location editor).
         MouseArea {
           anchors.fill: parent
           enabled: !root.editingLocation
           property real pressX: 0
           property real pressY: 0
           onWheel: function(wheel) {
-            var dy = wheel.angleDelta.y !== 0 ? wheel.angleDelta.y : wheel.pixelDelta.y
-            if (dy === 0) return
-            if (weatherScroll.interactive) { wheel.accepted = false; return }
+            var dx = wheel.angleDelta.x, dy = wheel.angleDelta.y
+            var d = Math.abs(dx) >= Math.abs(dy) ? dx : dy
+            if (d === 0) {
+              var px = wheel.pixelDelta.x, py = wheel.pixelDelta.y
+              d = Math.abs(px) >= Math.abs(py) ? px : py
+            }
+            if (d === 0) return
+            // Vertical gestures over overflowing content belong to the
+            // card's own scrolling; horizontal always pages.
+            if (weatherScroll.interactive && Math.abs(dx) < Math.abs(dy)) {
+              wheel.accepted = false
+              return
+            }
             wheel.accepted = true
-            root.cycleLocation(dy < 0 ? 1 : -1)
+            root.cycleLocation(d < 0 ? 1 : -1)
           }
           onPressed: function(mouse) { pressX = mouse.x; pressY = mouse.y }
           onReleased: function(mouse) {

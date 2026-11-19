@@ -101,10 +101,17 @@ BarWidget {
   // small per-frame angleDelta never reaches (the shell's volume
   // slider, stepping on any nonzero delta, is the working precedent on
   // this input). cycleLocation's 250ms throttle is the rate limiter.
+  // Dominant-axis delta: a horizontal two-finger scroll (angleDelta.x)
+  // pages exactly like a vertical one — scroll left = next, matching
+  // the swipe convention — with the same per-axis pixelDelta fallback.
   function pageByWheelEvent(wheel) {
-    var dy = wheel.angleDelta.y !== 0 ? wheel.angleDelta.y : wheel.pixelDelta.y
-    if (dy === 0) return
-    pageByWheel(dy)
+    var dx = wheel.angleDelta.x, dy = wheel.angleDelta.y
+    var d = Math.abs(dx) >= Math.abs(dy) ? dx : dy
+    if (d === 0) {
+      var px = wheel.pixelDelta.x, py = wheel.pixelDelta.y
+      d = Math.abs(px) >= Math.abs(py) ? px : py
+    }
+    pageByWheel(d)
   }
 
   function pageByWheel(delta) {
@@ -132,6 +139,18 @@ BarWidget {
       else if (b === Qt.MiddleButton) root.refresh()
       else root.togglePanel()
     }
+  }
+
+  // Wheel-only overlay on the icon: the shell's WidgetButton re-emits
+  // wheel as wheelMoved(angleDelta.y) — the horizontal axis never
+  // survives that hop, and the shell code is read-only. With
+  // acceptedButtons: NoButton this area takes wheel events with both
+  // axes intact while presses and hover fall through to the button
+  // beneath (clicks, middle-click refresh, tooltip).
+  MouseArea {
+    anchors.fill: button
+    acceptedButtons: Qt.NoButton
+    onWheel: function(wheel) { root.pageByWheelEvent(wheel) }
   }
 
   // Pill temperature: a plain wrapper item sized from the text, with the

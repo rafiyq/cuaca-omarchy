@@ -201,6 +201,7 @@ of the live conditions (temp with unit, wind, humidity, rain as available);
    each (time/icon/temp/rain %/wind), night icons included; a hairline
    separates every pair of day sections (same weight as the divider above
    BESOK).
-9. Carousel: swipe the popup body, wheel over it (when it doesn't scroll), or wheel
-   over the bar pill — each step pages through the recorded locations; dots under
-   the strips show position, tap to jump; switches update in place (insert-only).
+9. Carousel: swipe the popup body, scroll over it (left/right pages, up/down pages
+   unless the card overflows — then it scrolls), or scroll over the bar pill — each
+   step pages through the recorded locations; dots under the strips show position,
+   tap to jump; switches update in place (insert-only).
