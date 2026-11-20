@@ -4,6 +4,33 @@ Release history for the `cuaca.weather` bar plugin (versions track the
 plugin's `manifest.json`). Built and released in one working session on
 2026-10-28; each section notes the release that introduced the change.
 
+## 2.0.0 — 2026-11-21
+
+### Changed
+- The popup body is a true carousel: the single-column body is now
+  `WeatherPage.qml`, instantiated per recorded location inside a
+  horizontal snapping ListView. Dragging shows both pages side by side
+  — Bali sliding in from the edge while Bangkle slides out — with
+  native flick physics; settling on a page commits it through the same
+  `switchToRecent` path every other pager uses. The v1.6.5 slide-in
+  tween retired: the pager's own snap is the page turn, and it shows
+  real motion instead of hinting at it.
+- Per-page data comes from the per-location report cache: the
+  configured page reads live state, every other page reads its cached
+  forecast + warnings, filled by the prefetch queue within a refresh
+  epoch of startup. Unvisited pages read "Not loaded yet" until the
+  queue reaches them. The card height follows the settled page.
+- The location editor stays in-page and is gated to the configured
+  page — settle-to-commit means the page you land on is always the
+  configured one, so the pencil is live wherever the pager rests.
+- Keyboard paging: arrow keys / vim h,l page locations while the popup
+  is open and the menu is closed, via the shell key catcher's
+  moveRequested signal — the same hook the shell's own panels use.
+- Retired with the single body: the swipe MouseArea, the body wheel
+  handler, and the tween. Horizontal drag is the pager itself; the
+  horizontal wheel hook re-targets the pager through a wheel-only
+  NoButton overlay; up/down still never pages.
+
 ## 1.6.6 — 2026-11-20
 
 ### Added

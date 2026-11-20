@@ -117,6 +117,13 @@ Panel {
   property string prefetchActiveKey: ""
   property string prefetchKind: "forecast"
 
+  // The pager's pages: the recorded locations, or the configured
+  // location alone while nothing is recorded yet — a fresh install
+  // still renders one live-bound page.
+  readonly property var pageModel: recentLocations.length > 0
+    ? recentLocations
+    : (configuredLocationState.name !== "" ? [configuredLocationState] : [])
+
   // True only during the synchronous window in which switchToRecent has
   // installed a cached report and the configured-location assignment
   // fires onLocationQueryChanged: the handler must not wipe the install.
@@ -737,20 +744,15 @@ Panel {
     return String(entry.name) === String(configuredLocationState.name)
   }
 
-  function switchToRecent(entry, dir) {
+  function switchToRecent(entry) {
     if (!entry || !entry.name || isCurrentRecent(entry)) return
-    // Page-turn direction: gesture callers (wheel, swipe, pill) pass it
-    // through, so a forward wrap keeps sliding forward; taps without a
-    // gesture (dots, rows) derive it from the index delta — a dot to
-    // the right arrives from the right. Both indices are captured here,
-    // before the state swap below moves the current-location identity.
-    var prevIndex = currentLocationIndex()
+    // Pager target: the committed page's index, resolved before the
+    // state swap below (the insert-only commit right after replaces
+    // the recents array in place).
     var key = Model.recentLocationKey(entry)
     var nextIndex = -1
     for (var i = 0; i < recentLocations.length; i++)
       if (Model.recentLocationKey(recentLocations[i]) === key) { nextIndex = i; break }
-    if (dir === undefined || dir === 0)
-      dir = (prevIndex === -1 || nextIndex === -1) ? 0 : (nextIndex > prevIndex ? 1 : -1)
     // Plan-B lite: a cached report paints the target before the switch
     // completes — no loading window on revisits; the refresh that follows
     // quietly overwrites with fresh data. Villages install their cuaca
@@ -789,39 +791,28 @@ Panel {
       longitude: entry.longitude === undefined ? null : entry.longitude
     }
     cachedInstallActive = false
-    // Page turn: the swap has landed — slide the arriving page in from
-    // its direction of travel and fade it up.
-    if (dir !== 0) {
-      pageTurn.direction = dir
-      weatherColumn.x = dir * Style.space(24)
-      weatherColumn.opacity = 0.25
-      pageTurn.restart()
-    }
+    // The pager follows the commit: dots, rows, wheel and pill paths all
+    // land here, and the ListView animates the snap itself. Drag-settles
+    // arrive already on the target index, so this is a no-op for them.
+    if (nextIndex >= 0 && pageCarousel.currentIndex !== nextIndex)
+      pageCarousel.currentIndex = nextIndex
     persistLocation(String(entry.name), entry.latitude === undefined ? null : entry.latitude, entry.longitude === undefined ? null : entry.longitude)
     saveRecentLocations(Model.commitRecentLocation(recentLocations, entry, 4))
     settingsOpen = false
   }
 
-  // Carousel position: wherever the current location sits in the recents
-  // list; a current location that is not recorded yet answers -1, and the
-  // cycle wraps that to the first entry.
-  function currentLocationIndex() {
-    for (var i = 0; i < recentLocations.length; i++)
-      if (isCurrentRecent(recentLocations[i])) return i
-    return -1
-  }
-
-  // One carousel step in stored list order (dir -1 = previous, 1 = next,
-  // wrapping). A step is a real switch — the same commit path as tapping
-  // a LOCATIONS row — throttled so fast spins and flicks can't stack
-  // refetches.
+  // One carousel step (dir -1 = previous, 1 = next, wrapping). A step is
+  // a real switch — the same commit path as tapping a LOCATIONS row —
+  // throttled so fast spins and flicks can't stack refetches. The pager
+  // carries the motion: switchToRecent moves its index and the ListView
+  // snaps there.
   function cycleLocation(dir) {
-    var n = recentLocations.length
+    var n = pageModel.length
     if (n < 2) return
     if (cycleThrottle.running) return
     cycleThrottle.restart()
-    var target = (currentLocationIndex() + dir + n) % n
-    switchToRecent(recentLocations[target], dir)
+    var target = (pageCarousel.currentIndex + dir + n) % n
+    switchToRecent(pageModel[target])
   }
 
   Process {
@@ -887,6 +878,12 @@ Panel {
         Qt.callLater(root.runNextPrefetch)
       }
     }
+  }
+
+  // WeatherPage's search field calls this: ids aren't visible across
+  // files, so the debounce restart is exposed as a function.
+  function restartGeocodeDebounce() {
+    geocodeDebounce.restart()
   }
 
   // Debounced location search. The latest query always wins: the cuaca
@@ -1067,16 +1064,9 @@ Panel {
 
   // Page-turn for carousel switches: the body dips toward the swipe
   // direction and fades, then settles back while the new location loads.
-  // Page turn: the arriving page slides in from its direction of travel
-  // and fades up. Purely cosmetic and always started after the state
-  // swap, so it can never gate or delay the paint. Rapid paging can't
-  // overlap: the 250ms cycle throttle outlasts the 140ms tween.
-  ParallelAnimation {
-    id: pageTurn
-    property int direction: 1
-    NumberAnimation { target: weatherColumn; property: "x"; to: 0; duration: 140; easing.type: Easing.OutCubic }
-    NumberAnimation { target: weatherColumn; property: "opacity"; to: 1; duration: 140; easing.type: Easing.OutCubic }
-  }
+  // The v1.6.5 page-turn tween retired with the single body: the pager's
+  // own snap (180ms, StrictlyEnforceRange) is the page turn now, and it
+  // shows both pages mid-motion — the thing the tween could only hint at.
 
   Timer {
     id: cycleThrottle
@@ -1273,7 +1263,7 @@ Panel {
     centerOnBar: true
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(480))
-    contentHeight: panel.fittedContentHeight(weatherColumn.implicitHeight)
+    contentHeight: panel.fittedContentHeight(pageCarousel.currentItem ? pageCarousel.currentItem.implicitHeight : 0)
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -1288,777 +1278,66 @@ Panel {
         if (root.settingsOpen) return
         root.switchPanel(direction)
       }
+      // Arrow keys / vim h,l page locations when the menu is closed —
+      // the same signal the shell's own panels use for in-panel moves.
+      onMoveRequested: function(dx, dy) {
+        if (root.settingsOpen || dx === 0) return
+        root.cycleLocation(dx)
+      }
 
-      Flickable {
-        id: weatherScroll
+      // ---- The pager: one WeatherPage per recorded location, snapping
+      //      horizontally. Dragging gives the real side-by-side slide —
+      //      Bali in from the edge while Bangkle slides out — and
+      //      settling on a page commits it (switchToRecent), so browsing
+      //      and switching stay the same act they have always been.
+      //      Horizontal wheel pages via the NoButton overlay above the
+      //      pages; up/down never pages and scrolls a page natively if
+      //      one ever overflows its card.
+      Item {
         anchors.fill: parent
-        contentWidth: width
-        contentHeight: weatherColumn.implicitHeight
-        clip: true
-        boundsBehavior: Flickable.StopAtBounds
-        interactive: contentHeight > height
 
-        // Carousel input: the wheel pages horizontally only — two-finger
-        // left/right, scroll left = next (matching the swipe), slider-
-        // style after the shell's volume-slider precedent. Up/down
-        // never pages: over an overflowing card the event is rejected
-        // so the Flickable's native wheel scrolling takes over, and
-        // over a fitting card it does nothing. A horizontal-dominant
-        // swipe anywhere that is not an interactive control pages too
-        // (this area sits beneath the content, so clicks pass through
-        // to the location editor).
+        ListView {
+          id: pageCarousel
+          anchors.fill: parent
+          orientation: Qt.Horizontal
+          snapMode: ListView.SnapOneItem
+          highlightRangeMode: ListView.StrictlyEnforceRange
+          highlightMoveDuration: 180
+          clip: true
+          interactive: !root.editingLocation
+          cacheBuffer: width
+          boundsBehavior: Flickable.StopAtBounds
+          model: root.pageModel
+
+          delegate: WeatherPage {
+            width: pageCarousel.width
+            height: pageCarousel.height
+            host: root
+          }
+
+          onMovementEnded: {
+            var idx = pageCarousel.currentIndex
+            if (idx < 0 || idx >= root.pageModel.length) return
+            root.switchToRecent(root.pageModel[idx])
+          }
+        }
+
+        // Horizontal wheel over the card pages (slider-style, left =
+        // next); NoButton keeps clicks and hover on the pages, and
+        // vertical gestures fall through untouched.
         MouseArea {
           anchors.fill: parent
+          acceptedButtons: Qt.NoButton
           enabled: !root.editingLocation
-          property real pressX: 0
-          property real pressY: 0
           onWheel: function(wheel) {
-            // Horizontal only: left/right pages (scroll left = next,
-            // matching the swipe). Vertical gestures never page — when
-            // the card overflows they are rejected so its own native
-            // scrolling takes over, and when it fits they do nothing.
-            // The dominance test keeps noisy diagonals from paging.
             var dx = wheel.angleDelta.x !== 0 ? wheel.angleDelta.x : wheel.pixelDelta.x
             var dy = wheel.angleDelta.y !== 0 ? wheel.angleDelta.y : wheel.pixelDelta.y
             if (dx === 0 || Math.abs(dx) < Math.abs(dy)) return
             wheel.accepted = true
             root.cycleLocation(dx < 0 ? 1 : -1)
           }
-          onPressed: function(mouse) { pressX = mouse.x; pressY = mouse.y }
-          onReleased: function(mouse) {
-            var dx = mouse.x - pressX
-            var dy = mouse.y - pressY
-            if (Math.abs(dx) > Style.space(48) && Math.abs(dx) > Math.abs(dy) * 2)
-              root.cycleLocation(dx < 0 ? 1 : -1)
-          }
-        }
-
-        Column {
-          id: weatherColumn
-          width: weatherScroll.width
-          spacing: Style.space(14)
-
-      // ---- BMKG warnings (cuaca path only, sourced from /api/warnings).
-      //      Severity coloring stays theme-agnostic: sibling tones of the
-      //      bar foreground rather than fixed palette colors.
-      Column {
-        visible: root.bmkgWarnings.length > 0
-        width: parent.width
-        spacing: Style.space(6)
-
-        Repeater {
-          model: root.bmkgWarnings
-
-          Rectangle {
-            required property var modelData
-            width: parent.width
-            radius: Style.cornerRadius
-            color: Style.hoverFillFor(root.bar.foreground, Commons.Color.accent)
-            height: warningBody.implicitHeight + Style.space(20)
-
-            Column {
-              id: warningBody
-              anchors.fill: parent
-              anchors.leftMargin: Style.space(14)
-              // Right margin clears the fixed corner gear that overlays
-              // this band from the settings layer above the scroll.
-              anchors.rightMargin: Style.space(44)
-              anchors.topMargin: Style.space(10)
-              anchors.bottomMargin: Style.space(10)
-
-              Row {
-                spacing: Style.space(6)
-
-                Text {
-                  text: "⚠"
-                  anchors.verticalCenter: parent.verticalCenter
-                  color: root.bar.foreground
-                  font.family: root.bar.fontFamily
-                  font.pixelSize: Style.font.body
-                  font.bold: true
-                }
-                Text {
-                  textFormat: Text.PlainText
-                  visible: modelData.event !== ""
-                  text: modelData.event
-                  anchors.verticalCenter: parent.verticalCenter
-                  color: root.bar.foreground
-                  font.family: root.bar.fontFamily
-                  font.pixelSize: Style.font.body
-                  font.bold: true
-                }
-                Text {
-                  textFormat: Text.PlainText
-                  visible: modelData.severity !== ""
-                  text: modelData.severity.toUpperCase()
-                  anchors.verticalCenter: parent.verticalCenter
-                  color: Qt.darker(root.bar.foreground, 1.3)
-                  font.family: root.bar.fontFamily
-                  font.pixelSize: Style.font.caption
-                  font.letterSpacing: 1
-                }
-              }
-
-              Text {
-                textFormat: Text.PlainText
-                visible: modelData.area !== ""
-                text: modelData.area
-                color: Qt.darker(root.bar.foreground, 1.4)
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.bodySmall
-              }
-
-              Text {
-                textFormat: Text.PlainText
-                visible: modelData.description !== ""
-                text: modelData.description
-                color: root.bar.foreground
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.bodySmall
-                width: parent.width
-                wrapMode: Text.WordWrap
-              }
-            }
-          }
         }
       }
-
-      // ---- Hero row: big icon + temp (condition caption under the icon) on the left; location and stats stacked on the right.
-      Item {
-        width: parent.width
-        height: Math.max(heroLeft.height, heroRight.height)
-
-        Column {
-          id: heroLeft
-          anchors.left: parent.left
-          anchors.leftMargin: Style.space(16)
-          anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(2)
-
-          Row {
-            spacing: Style.space(16)
-
-            Text {
-              id: heroIcon
-              textFormat: Text.PlainText
-              anchors.verticalCenter: parent.verticalCenter
-              anchors.verticalCenterOffset: 5
-              text: root.label || "—"
-              color: root.bar.foreground
-              font.family: root.bar.fontFamily
-              // Decorative condition emoji; intentionally larger than the
-              // Style.font.* scale's displayLarge (28).
-              font.pixelSize: 64
-            }
-
-            Row {
-              anchors.verticalCenter: parent.verticalCenter
-              spacing: Style.space(2)
-
-              Text {
-                id: tempBig
-                textFormat: Text.PlainText
-                text: root.reportTempNum || "—"
-                color: root.tempColorOrDefault(current ? current.temp_C : null, root.bar.foreground)
-                font.family: root.bar.fontFamily
-                // Hero temperature read-out; deliberately oversized, outside
-                // the Style.font.* scale.
-                font.pixelSize: 56
-                font.bold: true
-              }
-              Text {
-                textFormat: Text.PlainText
-                text: root.current ? root.tempUnit : ""
-                color: root.bar.foreground
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.display
-                anchors.top: tempBig.top
-                anchors.topMargin: Style.space(10)
-              }
-            }
-          }
-
-          // BMKG condition text, native to the cuaca path ("Hujan
-          // Ringan", …) — the caption under the hero icon. wttr
-          // and Open-Meteo carry no equivalent string, so on the
-          // fallback path this line simply stays hidden.
-          Text {
-            id: conditionText
-            visible: root.reportCondition !== ""
-            text: root.reportCondition
-            color: Qt.darker(root.bar.foreground, 1.4)
-            font.family: root.bar.fontFamily
-            font.pixelSize: Style.font.bodySmall
-            font.letterSpacing: 1
-          }
-        }
-
-        Column {
-          id: heroRight
-          // Not just the stats width: pre-fetch the stats are empty, a
-          // collapsed column sits at the popup's right edge, and the
-          // scroll clip then cuts the location row off entirely. Take the
-          // widest of the three candidate rows instead.
-          width: Math.max(weatherStats.implicitWidth, locationLabelRow.implicitWidth, locationEditRow.implicitWidth)
-          anchors.right: parent.right
-          anchors.rightMargin: Style.space(20)
-          // Top-anchored, not centered: the caption makes the left block
-          // taller than this column, and a centered row read as floating
-          // mid-height. The 8px inset drops the label to the icon's top band.
-          anchors.top: parent.top
-          anchors.topMargin: Style.space(8)
-          spacing: Style.space(12)
-
-          Item {
-            id: locationRow
-            visible: !root.editingLocation && root.reportLocation !== ""
-            width: locationLabelRow.implicitWidth
-            height: locationLabelRow.implicitHeight
-
-            // Row-wide click target. Anchored to the wrapper, a plain Item,
-            // because horizontal anchoring is illegal on children of a Row
-            // (the earlier in-row fill anchor silently produced a 0x0 area).
-            // The label Row renders after it. The settings gear used to
-            // live in this row as well; it moved to a fixed corner control
-            // in the settings layer above the scroll content.
-            MouseArea {
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onClicked: root.startEditingLocation()
-            }
-
-            Row {
-              id: locationLabelRow
-              spacing: Style.space(6)
-
-              Text {
-                text: ""  // nf-fa-map_marker
-                color: Qt.darker(root.bar.foreground, 1.4)
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.body
-                anchors.verticalCenter: parent.verticalCenter
-              }
-              Text {
-                textFormat: Text.PlainText
-                text: (root.reportLocation || "").toUpperCase()
-                color: Qt.darker(root.bar.foreground, 1.4)
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.body
-                font.letterSpacing: 1
-                anchors.verticalCenter: parent.verticalCenter
-              }
-              // Pencil cue: clicking the "hidden" location label opens the
-              // editor; this makes that affordance discoverable.
-              Text {
-                textFormat: Text.PlainText
-                text: ""  // nf-fa-pencil
-                color: Qt.darker(root.bar.foreground, 1.6)
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.bodySmall
-                anchors.verticalCenter: parent.verticalCenter
-              }
-
-            }
-          }
-
-          Row {
-            id: locationEditRow
-            visible: root.editingLocation
-            spacing: Style.space(6)
-
-            TextField {
-              id: locationField
-              width: Style.space(190)
-              enabled: !root.savingLocation
-              placeholderText: "Search location"
-              foreground: root.bar.foreground
-              font.family: root.bar.fontFamily
-
-              onTextChanged: if (root.editingLocation && !root.savingLocation) geocodeDebounce.restart()
-
-              Keys.onPressed: function(event) {
-                if (event.key === Qt.Key_Escape) {
-                  root.cancelEditingLocation()
-                  event.accepted = true
-                } else if (event.key === Qt.Key_Down) {
-                  if (root.suggestionIndex < root.locationSuggestions.length - 1) root.suggestionIndex++
-                  event.accepted = true
-                } else if (event.key === Qt.Key_Up) {
-                  if (root.suggestionIndex > 0) root.suggestionIndex--
-                  event.accepted = true
-                } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                  root.commitLocation()
-                  event.accepted = true
-                }
-              }
-            }
-
-            // Clear back to the cuaca default village (Kemayoran). While a
-            // committed location is loading, this same compact affordance
-            // becomes a spinner.
-            Rectangle {
-              width: Style.space(18)
-              height: Style.space(18)
-              anchors.verticalCenter: parent.verticalCenter
-              radius: Math.min(4, Style.cornerRadius)
-              color: !root.savingLocation && clearLocationArea.containsMouse ? Style.hoverFillFor(root.bar.foreground, Commons.Color.accent) : "transparent"
-
-              Text {
-                textFormat: Text.PlainText
-                anchors.centerIn: parent
-                text: root.savingLocation ? "󰦖" : "✕"
-                font.family: root.bar.fontFamily
-                color: Qt.darker(root.bar.foreground, 1.4)
-                font.pixelSize: Style.font.bodySmall
-
-                RotationAnimator on rotation {
-                  running: root.savingLocation
-                  from: 0; to: 360
-                  duration: 800
-                  loops: Animation.Infinite
-                }
-              }
-
-              MouseArea {
-                id: clearLocationArea
-                anchors.fill: parent
-                enabled: !root.savingLocation
-                hoverEnabled: true
-                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                onClicked: root.clearLocation()
-              }
-            }
-          }
-
-          Row {
-            id: weatherStats
-            visible: !!root.current
-            spacing: Style.space(36)
-
-            Column {
-              spacing: Style.space(5)
-              Text {
-                text: "WIND"
-                color: Qt.darker(root.bar.foreground, 1.5)
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.bodySmall
-                font.letterSpacing: 1
-              }
-              Text {
-                textFormat: Text.PlainText
-                text: root.reportWind
-                color: root.bar.foreground
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.title
-              }
-            }
-
-            Column {
-              spacing: Style.space(5)
-              Text {
-                text: "HUMID"
-                color: Qt.darker(root.bar.foreground, 1.5)
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.bodySmall
-                font.letterSpacing: 1
-              }
-              Text {
-                textFormat: Text.PlainText
-                text: root.reportHumidity
-                color: root.bar.foreground
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.title
-              }
-            }
-
-            // BMKG rain chance; hidden on the fallback path, which has no
-            // equivalent number.
-            Column {
-              visible: root.reportRain !== ""
-              spacing: Style.space(5)
-              Text {
-                text: "RAIN"
-                color: Qt.darker(root.bar.foreground, 1.5)
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.bodySmall
-                font.letterSpacing: 1
-              }
-              Text {
-                textFormat: Text.PlainText
-                text: root.reportRain
-                color: root.bar.foreground
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.title
-              }
-            }
-          }
-        }
-      }
-
-      // ---- Slot strip: today's remaining slots (cuaca path), time /
-      //      read left to right from the current 3-hour block.
-      Item {
-        visible: root.usingCuaca && root.todaySlots.length > 0
-        width: parent.width
-        height: todayRow.height
-
-        Row {
-          id: todayRow
-          anchors.horizontalCenter: parent.horizontalCenter
-          spacing: Style.space(18)
-
-          Repeater {
-            model: root.todaySlots
-
-            Column {
-              required property var modelData
-              spacing: Style.space(3)
-
-              Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                textFormat: Text.PlainText
-                // Slot time is location-local; "HH:MM" drops the seconds.
-                text: String(modelData.time || "").slice(11, 16)
-                color: Qt.darker(root.bar.foreground, 1.4)
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.caption
-                font.letterSpacing: 1
-              }
-              Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                textFormat: Text.PlainText
-                text: root.slotIcon(modelData)
-                color: root.bar.foreground
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.display
-              }
-              Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                textFormat: Text.PlainText
-                text: root.bareTempForSlot(modelData)
-                color: root.tempColorOrDefault(modelData.temp, root.bar.foreground)
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.body
-              }
-              readonly property var rain: Model.slotRainProb(modelData)
-              Text {
-                visible: rain.text !== ""
-                anchors.horizontalCenter: parent.horizontalCenter
-                textFormat: Text.PlainText
-                text: rain.text
-                color: rain.wet
-                  ? Style.selectedStateColor(root.bar.foreground, Commons.Color.accent)
-                  : Qt.darker(root.bar.foreground, 1.5)
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.caption
-              }
-              readonly property var wind: Model.slotWind(modelData, useImperial)
-              Row {
-                visible: wind.text !== ""
-                anchors.horizontalCenter: parent.horizontalCenter
-                spacing: Style.space(4)
-
-                Text {
-                  visible: wind.arrow !== ""
-                  textFormat: Text.PlainText
-                  text: wind.arrow
-                  color: root.bar.foreground
-                  font.family: root.bar.fontFamily
-                  font.pixelSize: Style.font.caption
-                }
-                Text {
-                  textFormat: Text.PlainText
-                  text: wind.speed
-                  color: colorMode === "color" && wind.color !== ""
-                    ? wind.color
-                    : (wind.strong
-                       ? Style.selectedStateColor(root.bar.foreground, Commons.Color.accent)
-                       : Qt.darker(root.bar.foreground, 1.5))
-                  font.family: root.bar.fontFamily
-                  font.pixelSize: Style.font.caption
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // ---- Geocoding suggestions while the location is being edited.
-      Column {
-        visible: root.editingLocation && !root.savingLocation && root.locationSuggestions.length > 0
-        width: parent.width
-        spacing: 0
-
-        Repeater {
-          model: root.locationSuggestions
-
-          Rectangle {
-            required property var modelData
-            required property int index
-            width: parent.width
-            height: suggestionRow.implicitHeight + Style.space(12)
-            radius: Style.cornerRadius
-            color: index === root.suggestionIndex ? Style.hoverFillFor(root.bar.foreground, Commons.Color.accent) : "transparent"
-
-            Row {
-              id: suggestionRow
-              anchors.left: parent.left
-              anchors.leftMargin: Style.space(16)
-              anchors.verticalCenter: parent.verticalCenter
-              spacing: Style.space(8)
-
-              Text {
-                textFormat: Text.PlainText
-                text: modelData.name
-                color: index === root.suggestionIndex ? Style.hoverStateColor(root.bar.foreground, Commons.Color.accent) : root.bar.foreground
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.body
-              }
-              Text {
-                textFormat: Text.PlainText
-                visible: text !== ""
-                text: modelData.description
-                color: Qt.darker(root.bar.foreground, 1.5)
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.bodySmall
-                anchors.verticalCenter: parent.verticalCenter
-              }
-            }
-
-            MouseArea {
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onPositionChanged: root.suggestionIndex = index
-              onClicked: root.pickSuggestion(modelData)
-            }
-          }
-        }
-      }
-
-      Text {
-        visible: !root.current
-        text: "Fetching forecast…"
-        color: Qt.darker(root.bar.foreground, 1.5)
-        font.family: root.bar.fontFamily
-        font.pixelSize: Style.font.bodySmall
-        font.italic: true
-      }
-
-      // ---- Divider between current conditions and forecast. Also covers
-      //      the edge where tomorrow's grid is empty but the day after
-      //      still has slots — the LUSA strip keeps its top separator.
-      Rectangle {
-        visible: root.usingCuaca && (root.tomorrowSlots.length > 0 || root.dayAfterSlots.length > 0)
-        width: parent.width
-        height: Style.spacing.hairline
-        color: root.bar.foreground
-        opacity: 0.12
-      }
-
-      // ---- Future-day strips: tomorrow and the day after, one captioned
-      //      3-hourly strip each (cuaca path). The caption carries the day
-      //      label + name + hi/lo; the columns are time / icon / temp — the
-      //      same rhythm as the today strip above.
-      Repeater {
-        model: root.futureStripModel
-
-        Item {
-          required property var modelData
-          required property int index
-
-          // A hairline separates consecutive day strips — same weight as
-          // the divider above the first strip; shown only when the
-          // previous strip actually rendered.
-          readonly property bool showDivider: index > 0 && root.usingCuaca && root.futureStripModel[0].slots.length > 0
-
-          visible: root.usingCuaca && modelData.slots.length > 0
-          width: parent.width
-          height: (showDivider ? Style.spacing.hairline + Style.space(14) : 0)
-                  + stripHead.implicitHeight + Style.space(4) + futureRow.height
-
-          Rectangle {
-            visible: parent.showDivider
-            anchors.top: parent.top
-            width: parent.width
-            height: Style.spacing.hairline
-            color: root.bar.foreground
-            opacity: 0.12
-          }
-
-          Row {
-            id: stripHead
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.top: parent.top
-            anchors.topMargin: showDivider ? Style.spacing.hairline + Style.space(14) : 0
-            spacing: Style.space(10)
-
-            Text {
-              textFormat: Text.PlainText
-              anchors.verticalCenter: parent.verticalCenter
-              text: modelData.label
-              color: root.bar.foreground
-              font.family: root.bar.fontFamily
-              font.pixelSize: Style.font.caption
-              font.letterSpacing: 1
-            }
-            Text {
-              visible: modelData.day !== ""
-              textFormat: Text.PlainText
-              anchors.verticalCenter: parent.verticalCenter
-              text: modelData.day
-              color: Qt.darker(root.bar.foreground, 1.4)
-              font.family: root.bar.fontFamily
-              font.pixelSize: Style.font.caption
-              font.letterSpacing: 1
-            }
-            Row {
-              anchors.verticalCenter: parent.verticalCenter
-              spacing: Style.space(6)
-
-              Text {
-                textFormat: Text.PlainText
-                text: modelData.hi
-                color: modelData.hiColor !== "" ? modelData.hiColor : root.bar.foreground
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.body
-              }
-              Text {
-                textFormat: Text.PlainText
-                text: modelData.lo
-                color: modelData.loColor !== "" ? modelData.loColor : Qt.darker(root.bar.foreground, 1.5)
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.body
-              }
-            }
-          }
-
-          Row {
-            id: futureRow
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.top: stripHead.bottom
-            anchors.topMargin: Style.space(4)
-            spacing: Style.space(18)
-
-            Repeater {
-              model: modelData.slots
-
-              Column {
-                required property var modelData
-                spacing: Style.space(3)
-
-                Text {
-                  anchors.horizontalCenter: parent.horizontalCenter
-                  textFormat: Text.PlainText
-                  // Slot time is location-local; "HH:MM" drops the seconds.
-                  text: String(modelData.time || "").slice(11, 16)
-                  color: Qt.darker(root.bar.foreground, 1.4)
-                  font.family: root.bar.fontFamily
-                  font.pixelSize: Style.font.caption
-                  font.letterSpacing: 1
-                }
-                Text {
-                  anchors.horizontalCenter: parent.horizontalCenter
-                  textFormat: Text.PlainText
-                  text: root.slotIcon(modelData)
-                  color: root.bar.foreground
-                  font.family: root.bar.fontFamily
-                  font.pixelSize: Style.font.display
-                }
-                Text {
-                  anchors.horizontalCenter: parent.horizontalCenter
-                  textFormat: Text.PlainText
-                  text: root.bareTempForSlot(modelData)
-                  color: root.tempColorOrDefault(modelData.temp, root.bar.foreground)
-                  font.family: root.bar.fontFamily
-                  font.pixelSize: Style.font.body
-                }
-                readonly property var rain: Model.slotRainProb(modelData)
-                Text {
-                  visible: rain.text !== ""
-                  anchors.horizontalCenter: parent.horizontalCenter
-                  textFormat: Text.PlainText
-                  text: rain.text
-                  color: rain.wet
-                    ? Style.selectedStateColor(root.bar.foreground, Commons.Color.accent)
-                    : Qt.darker(root.bar.foreground, 1.5)
-                  font.family: root.bar.fontFamily
-                  font.pixelSize: Style.font.caption
-                }
-                readonly property var wind: Model.slotWind(modelData, useImperial)
-                Row {
-                  visible: wind.text !== ""
-                  anchors.horizontalCenter: parent.horizontalCenter
-                  spacing: Style.space(4)
-
-                  Text {
-                    visible: wind.arrow !== ""
-                    textFormat: Text.PlainText
-                    text: wind.arrow
-                    color: root.bar.foreground
-                    font.family: root.bar.fontFamily
-                    font.pixelSize: Style.font.caption
-                  }
-                  Text {
-                    textFormat: Text.PlainText
-                    text: wind.speed
-                    color: colorMode === "color" && wind.color !== ""
-                      ? wind.color
-                      : (wind.strong
-                         ? Style.selectedStateColor(root.bar.foreground, Commons.Color.accent)
-                         : Qt.darker(root.bar.foreground, 1.5))
-                    font.family: root.bar.fontFamily
-                    font.pixelSize: Style.font.caption
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // ---- Carousel dots: one per recorded location, the active one
-      //      accented; a tap jumps straight there. Hidden below two
-      //      locations — a single dot is decoration and the cycle has
-      //      nowhere to go.
-      Row {
-        visible: root.recentLocations.length >= 2
-        anchors.horizontalCenter: parent.horizontalCenter
-        spacing: Style.space(8)
-
-        Repeater {
-          model: root.recentLocations
-
-          Item {
-            id: pageDot
-            required property var modelData
-            readonly property bool isActive: root.isCurrentRecent(pageDot.modelData)
-
-            width: Style.space(14)
-            height: Style.space(14)
-
-            Rectangle {
-              anchors.centerIn: parent
-              width: Style.space(6)
-              height: Style.space(6)
-              radius: width / 2
-              color: pageDot.isActive ? Commons.Color.accent : root.bar.foreground
-              opacity: pageDot.isActive ? 1 : 0.35
-              Behavior on opacity { NumberAnimation { duration: 120 } }
-            }
-
-            MouseArea {
-              anchors.fill: parent
-              cursorShape: Qt.PointingHandCursor
-              onClicked: root.switchToRecent(pageDot.modelData)
-            }
-          }
-        }
-      }
-
-    }
-  }
 
       // ---- Settings: a fixed corner gear plus a dropdown menu.
       //      Both live in this layer, declared after the Flickable, so
