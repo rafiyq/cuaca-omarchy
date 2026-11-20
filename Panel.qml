@@ -115,6 +115,7 @@ Panel {
   property var pageReports: ({})
   property var prefetchQueue: []
   property string prefetchActiveKey: ""
+  property string prefetchKind: "forecast"
 
   // True only during the synchronous window in which switchToRecent has
   // installed a cached report and the configured-location assignment
@@ -122,8 +123,21 @@ Panel {
   property bool cachedInstallActive: false
 
   function storeCachedReport(key, payload) {
+    // Merge, not replace: a warnings payload learned earlier must
+    // survive the forecast refresh that overwrites the entry.
+    var prev = pageReports[key]
+    if (prev && prev.warnings) payload.warnings = prev.warnings
     payload.at = Date.now()
     pageReports[key] = payload
+  }
+
+  // Learn-as-you-go for cached warnings (prefetch walk and live
+  // refreshes). Kept beside the village's forecast entry; no timestamp
+  // of its own — the entry's refresh epoch gates both.
+  function storeCachedWarnings(key, warnings) {
+    var entry = pageReports[key]
+    if (!entry) return
+    entry.warnings = warnings
   }
 
   // Keep the previous report visible while the new location loads. The
@@ -138,16 +152,17 @@ Panel {
     dailyForecastProc.running = false
     bmkgResolveProc.running = false
     bmkgForecastProc.running = false
-    // Warnings are live-only and location-bound: the previous banner
-    // must not ride along (cached installs carry none of it).
-    bmkgWarnings = []
     if (cachedInstallActive) {
       // The on-screen report belongs to the target location — wiping it
       // would reintroduce the loading window the cache exists to
-      // prevent. Keep it; the refresh below only refreshes.
+      // prevent. Its cached warnings ride along the same way; the
+      // refresh below only refreshes.
       Qt.callLater(refresh)
       return
     }
+    // Warnings are location-bound: the previous banner must not ride
+    // along with an uncached switch.
+    bmkgWarnings = []
     // The new location must resolve on its own terms; mixing the old
     // village's report under it is worse than a blank while loading.
     resolvedAdm4 = ""
@@ -748,6 +763,7 @@ Panel {
         resolvedAdm4 = String(entry.adm4)
         usingCuaca = true
         label = Model.currentIcon(Model.bmkgCurrentCondition(cached.cuaca), root.label, root.iconScheme)
+        if (cached.warnings) bmkgWarnings = cached.warnings
         installed = true
       } else if (cached.wttr && String(entry.adm4 || "") === "") {
         report = cached.wttr
@@ -822,13 +838,20 @@ Panel {
     for (var i = 0; i < recentLocations.length; i++) keys[Model.recentLocationKey(recentLocations[i])] = true
     for (var k in pageReports) if (!keys[k]) delete pageReports[k]
     var maxAge = root.refreshMinutes * 60 * 1000
-    prefetchQueue = recentLocations
-      .filter(function (e) { return String(e.adm4 || "") !== "" })
-      .map(function (e) { return { key: Model.recentLocationKey(e), adm4: String(e.adm4) } })
-      .filter(function (item) {
-        var cached = pageReports[item.key]
-        return !cached || !cached.cuaca || !cached.at || Date.now() - cached.at > maxAge
-      })
+    // Two passes per stale village — forecast first, then its warnings —
+    // so a page turn can paint the banner from cache too. Warnings ride
+    // the entry's refresh epoch: fresh forecast, fresh-enough warnings.
+    prefetchQueue = []
+    recentLocations.forEach(function (e) {
+      if (String(e.adm4 || "") === "") return
+      var key = Model.recentLocationKey(e)
+      var cached = pageReports[key]
+      var stale = !cached || !cached.at || Date.now() - cached.at > maxAge
+      if (!cached || !cached.cuaca || stale)
+        prefetchQueue.push({ key: key, adm4: String(e.adm4), kind: "forecast" })
+      if (!cached || !cached.warnings || stale)
+        prefetchQueue.push({ key: key, adm4: String(e.adm4), kind: "warnings" })
+    })
     runNextPrefetch()
   }
 
@@ -836,8 +859,11 @@ Panel {
     if (prefetchProc.running || prefetchQueue.length === 0) return
     var item = prefetchQueue.shift()
     prefetchActiveKey = item.key
+    prefetchKind = item.kind
     prefetchProc.command = ["curl", "-fsS", "--max-time", "8",
-      "https://cuaca.wilayah.workers.dev/api/forecast?adm4=" + encodeURIComponent(item.adm4)]
+      item.kind === "warnings"
+        ? "https://cuaca.wilayah.workers.dev/api/warnings?adm4=" + encodeURIComponent(item.adm4)
+        : "https://cuaca.wilayah.workers.dev/api/forecast?adm4=" + encodeURIComponent(item.adm4)]
     prefetchProc.running = true
   }
 
@@ -849,9 +875,13 @@ Panel {
         var raw = String(text || "").trim()
         if (raw) {
           try {
-            var parsed = JSON.parse(raw)
-            if (parsed && parsed.forecast && parsed.forecast.length)
-              root.storeCachedReport(root.prefetchActiveKey, { cuaca: parsed })
+            if (prefetchKind === "warnings") {
+              root.storeCachedWarnings(root.prefetchActiveKey, Model.parseBmkgWarnings(raw))
+            } else {
+              var parsed = JSON.parse(raw)
+              if (parsed && parsed.forecast && parsed.forecast.length)
+                root.storeCachedReport(root.prefetchActiveKey, { cuaca: parsed })
+            }
           } catch (e) {}
         }
         Qt.callLater(root.runNextPrefetch)
@@ -1120,6 +1150,9 @@ Panel {
         // success replaces the list, including the all-clear case.
         if (String(text || "").trim() === "") return
         root.bmkgWarnings = Model.parseBmkgWarnings(text)
+        root.storeCachedWarnings(
+          Model.recentLocationKey({ name: root.configuredLocationState.name, adm4: root.resolvedAdm4 }),
+          root.bmkgWarnings)
       }
     }
   }

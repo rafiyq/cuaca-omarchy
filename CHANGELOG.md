@@ -4,6 +4,18 @@ Release history for the `cuaca.weather` bar plugin (versions track the
 plugin's `manifest.json`). Built and released in one working session on
 2026-10-28; each section notes the release that introduced the change.
 
+## 1.6.6 — 2026-11-20
+
+### Added
+- Cached warnings: the prefetch queue now walks each village's
+  `/api/warnings` right after its forecast, storing them beside the
+  cached report, and a carousel step paints the banner instantly from
+  cache — the live refresh still overwrites in the background. Live
+  warning fetches learn into the cache the same way forecasts do, and
+  a cached switch no longer clears the banner (the arriving warnings
+  belong to the target location, so they ride along with the rest of
+  the cached paint).
+
 ## 1.6.5 — 2026-11-20
 
 ### Added

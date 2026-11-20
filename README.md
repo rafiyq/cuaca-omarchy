@@ -65,8 +65,9 @@ feels-like temperature.
   jump); a step is a real switch, same path as a row tap — cached steps
   swap instantly, a true miss gets a quick page-turn dip while the fetch
   lands. Reports are prefetched for the recorded villages (and
-  learned from every fetch), so revisits paint instantly and the fetch
-  that follows only refreshes in the background. Switches keep the list
+  learned from every fetch), so revisits paint instantly — the warning
+  banner included — and the fetch that follows only refreshes in the
+  background. Switches keep the list
   order — only new locations prepend (insert-only recents)
 - The bar pill shows the current temperature and location beside the
   icon — `27°C at Bangkle` — once data lands (stacked under it in
