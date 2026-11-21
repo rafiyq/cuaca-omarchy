@@ -885,7 +885,12 @@ Panel {
       var key = Model.recentLocationKey(e)
       var cached = pageReports[key]
       var stale = !cached || !cached.at || Date.now() - cached.at > maxAge
-      if (!cached || !cached.cuaca || stale)
+      // A village already serving fallback data (cuaca came back empty —
+      // the worker flaps around BMKG's analysis refreshes) skips its cuaca
+      // pass until the entry goes stale again; hammering the endpoint for
+      // a village that has open-meteo data buys nothing.
+      var hasFallback = !!(cached && (cached.wttr || cached.daily))
+      if (!cached || (!cached.cuaca && !hasFallback) || stale)
         prefetchQueue.push({ key: key, adm4: String(e.adm4), kind: "forecast" })
       if (!cached || !cached.warnings || stale)
         prefetchQueue.push({ key: key, adm4: String(e.adm4), kind: "warnings" })
@@ -902,8 +907,32 @@ Panel {
     prefetchProc.command = ["curl", "-fsS", "--max-time", "8",
       item.kind === "warnings"
         ? "https://cuaca.wilayah.workers.dev/api/warnings?adm4=" + encodeURIComponent(item.adm4)
-        : "https://cuaca.wilayah.workers.dev/api/forecast?adm4=" + encodeURIComponent(item.adm4)]
+        : item.kind === "openmeteo"
+          ? "https://api.open-meteo.com/v1/forecast?latitude=" + encodeURIComponent(String(item.lat))
+            + "&longitude=" + encodeURIComponent(String(item.lon))
+            + "&daily=weather_code,temperature_2m_max,temperature_2m_min"
+            + "&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day"
+            + "&forecast_days=4&timezone=auto"
+          : "https://cuaca.wilayah.workers.dev/api/forecast?adm4=" + encodeURIComponent(item.adm4)]
     prefetchProc.running = true
+  }
+
+  // The cuaca worker flaps around BMKG's analysis refreshes — an empty
+  // forecast means "no data right now", not "bad village". Queue an
+  // open-meteo pass for the village's coordinates so its page still
+  // shows weather (hero only, no 3-hourly strips) until cuaca recovers.
+  function queueOpenMeteoFallback(key) {
+    var entry = null
+    for (var i = 0; i < pageModel.length; i++)
+      if (Model.recentLocationKey(pageModel[i]) === key) { entry = pageModel[i]; break }
+    if (!entry) return
+    var lat = parseFloat(String(entry.latitude))
+    var lon = parseFloat(String(entry.longitude))
+    if (isNaN(lat) || isNaN(lon)) return
+    var cached = pageReports[key]
+    if (cached && cached.daily) return
+    console.log("[cuaca-dbg] cuaca empty for", key, "- openmeteo fallback queued")
+    prefetchQueue.push({ key: key, kind: "openmeteo", lat: lat, lon: lon })
   }
 
   Process {
@@ -917,10 +946,16 @@ Panel {
           try {
             if (prefetchKind === "warnings") {
               root.storeCachedWarnings(root.prefetchActiveKey, Model.parseBmkgWarnings(raw))
+            } else if (prefetchKind === "openmeteo") {
+              var om = JSON.parse(raw)
+              if (om && om.daily)
+                root.storeCachedReport(root.prefetchActiveKey, { daily: om })
             } else {
               var parsed = JSON.parse(raw)
               if (parsed && parsed.forecast && parsed.forecast.length)
                 root.storeCachedReport(root.prefetchActiveKey, { cuaca: parsed })
+              else
+                root.queueOpenMeteoFallback(root.prefetchActiveKey)
             }
           } catch (e) {}
         }
