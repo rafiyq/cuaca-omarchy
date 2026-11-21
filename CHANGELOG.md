@@ -4,6 +4,22 @@ Release history for the `cuaca.weather` bar plugin (versions track the
 plugin's `manifest.json`). Built and released in one working session on
 2026-10-28; each section notes the release that introduced the change.
 
+## 2.0.1 — 2026-11-21
+
+### Fixed
+- The pager's animation stutter, from three compounding sources: every
+  switch reassigned the recents list twice (commit + file reload),
+  handing the ListView a fresh array and rebuilding every delegate
+  mid-slide — the recents list is now identity-stable, reassigned only
+  when its content actually changes. Pages were instantiated lazily, so
+  the first drag toward a neighbor created its ~50-item page on the
+  spot — all pages now stay alive (the location cap is 4). The card
+  height refit to the live pager index, resizing mid-drag — it now
+  follows the rest index and only changes at settle. Page data also
+  prefers the cache on every page including the configured one (whose
+  live fetches learn into the cache synchronously), so committing no
+  longer flips a page's data source and rebuilds its strips.
+
 ## 2.0.0 — 2026-11-21
 
 ### Changed

@@ -124,6 +124,11 @@ Panel {
     ? recentLocations
     : (configuredLocationState.name !== "" ? [configuredLocationState] : [])
 
+  // The page the card is sized for: updated only at rest (drag-settle or
+  // a programmatic commit), never mid-drag — fitting to the live
+  // currentIndex would resize the card halfway through every slide.
+  property int restPageIndex: 0
+
   // True only during the synchronous window in which switchToRecent has
   // installed a cached report and the configured-location assignment
   // fires onLocationQueryChanged: the handler must not wipe the install.
@@ -199,7 +204,10 @@ Panel {
     printErrors: false
     onFileChanged: reload()
     onLoaded: {
-      root.recentLocations = Model.parseRecentLocations(text())
+      var parsed = Model.parseRecentLocations(text())
+      // Identity-stable: an unchanged file must not reset the pager.
+      if (recentLocationsSignature(parsed) !== recentLocationsSignature(recentLocations))
+        root.recentLocations = parsed
       root.schedulePrefetch()
     }
     onLoadFailed: root.recentLocations = Model.parseRecentLocations("")
@@ -683,8 +691,19 @@ Panel {
 
   // ---- quick-switch recents ----
   // Same shell recipe as the report cache: mode 0600, parents made.
+  // Content signature for the recents list: the pager's model is
+  // identity-sensitive, so a reload that parsed the same locations must
+  // not hand the ListView a fresh array (that would rebuild every page
+  // mid-animation).
+  function recentLocationsSignature(list) {
+    var parts = []
+    for (var i = 0; i < list.length; i++) parts.push(JSON.stringify(list[i]))
+    return parts.join("|")
+  }
+
   function saveRecentLocations(list) {
-    recentLocations = list
+    if (recentLocationsSignature(list) !== recentLocationsSignature(recentLocations))
+      recentLocations = list
     recentsWriteProc.command = ["sh", "-c",
       'mkdir -p "$(dirname "$2")" && umask 077 && printf %s "$1" > "$2"',
       "cuaca-recents", JSON.stringify(list), recentsPath]
@@ -796,6 +815,8 @@ Panel {
     // arrive already on the target index, so this is a no-op for them.
     if (nextIndex >= 0 && pageCarousel.currentIndex !== nextIndex)
       pageCarousel.currentIndex = nextIndex
+    if (nextIndex >= 0)
+      restPageIndex = nextIndex
     persistLocation(String(entry.name), entry.latitude === undefined ? null : entry.latitude, entry.longitude === undefined ? null : entry.longitude)
     saveRecentLocations(Model.commitRecentLocation(recentLocations, entry, 4))
     settingsOpen = false
@@ -1263,7 +1284,10 @@ Panel {
     centerOnBar: true
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(480))
-    contentHeight: panel.fittedContentHeight(pageCarousel.currentItem ? pageCarousel.currentItem.implicitHeight : 0)
+    contentHeight: {
+      var it = pageCarousel.itemAtIndex(root.restPageIndex)
+      return panel.fittedContentHeight(it ? it.implicitHeight : 0)
+    }
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -1305,7 +1329,10 @@ Panel {
           highlightMoveDuration: 180
           clip: true
           interactive: !root.editingLocation
-          cacheBuffer: width
+          // All pages stay instantiated: the location cap is 4, and a
+          // lazily created WeatherPage (~50 items) hitching into existence
+          // at drag start reads as stutter.
+          cacheBuffer: width * 4
           boundsBehavior: Flickable.StopAtBounds
           model: root.pageModel
 
@@ -1318,6 +1345,7 @@ Panel {
           onMovementEnded: {
             var idx = pageCarousel.currentIndex
             if (idx < 0 || idx >= root.pageModel.length) return
+            root.restPageIndex = idx
             root.switchToRecent(root.pageModel[idx])
           }
         }

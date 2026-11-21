@@ -28,20 +28,24 @@ Item {
   readonly property var cached: (host && host.pageReports[locKey]) ? host.pageReports[locKey] : ({})
   readonly property var bar: host ? host.bar : null
 
-  // Per-page data. The current page reads live state exclusively; other
-  // pages read the cache, keyed by the same recentLocationKey the
-  // prefetch queue and the learn-as-you-go fetches write.
-  readonly property var cuacaData: isCurrent
-    ? (host.usingCuaca ? host.bmkgReport : null)
-    : (entryIsVillage ? (cached.cuaca || null) : null)
-  readonly property var wttrData: isCurrent
-    ? (!host.usingCuaca ? host.report : null)
-    : (entryIsVillage ? null : (cached.wttr || null))
-  readonly property var dailyData: isCurrent
-    ? (!host.usingCuaca ? host.dailyForecastReport : null)
-    : (entryIsVillage ? null : (cached.daily || null))
+  // Per-page data. The cache is preferred for every page — including the
+  // configured one, whose live fetches learn into the cache synchronously
+  // — so committing a page does not flip its data source and rebuild its
+  // strips mid-animation. Live state is the fallback (first fetch, empty
+  // cache); the refresh keeps both in agreement.
+  readonly property var cuacaData: !entryIsVillage ? null
+    : (isCurrent ? (host.usingCuaca ? (cached.cuaca || host.bmkgReport) : null)
+                 : (cached.cuaca || null))
+  readonly property var wttrData: entryIsVillage ? null
+    : (isCurrent ? (!host.usingCuaca ? (cached.wttr || host.report) : null)
+                 : (cached.wttr || null))
+  readonly property var dailyData: entryIsVillage ? null
+    : (isCurrent ? (!host.usingCuaca ? (cached.daily || host.dailyForecastReport) : null)
+                 : (cached.daily || null))
   readonly property bool pageIsCuaca: cuacaData !== null
-  readonly property var pageWarnings: isCurrent ? host.bmkgWarnings : (cached.warnings || [])
+  readonly property var pageWarnings: isCurrent
+    ? (cached.warnings && cached.warnings.length ? cached.warnings : host.bmkgWarnings)
+    : (cached.warnings || [])
 
   // Same priority chain the pill uses: cuaca wins, then the open-meteo
   // daily the fallback fetches alongside wttr, then wttr's own current.
