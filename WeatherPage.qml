@@ -28,20 +28,20 @@ Item {
   readonly property var cached: (host && host.pageReports[locKey]) ? host.pageReports[locKey] : ({})
   readonly property var bar: host ? host.bar : null
 
-  // Per-page data. The cache is preferred for every page — including the
-  // configured one, whose live fetches learn into the cache synchronously
-  // — so committing a page does not flip its data source and rebuild its
-  // strips mid-animation. Live state is the fallback (first fetch, empty
-  // cache); the refresh keeps both in agreement.
+  // Per-page data. The cuaca cache wins for village pages — a cached
+  // forecast keeps the full strip view alive even while the live path is
+  // flipped to its wttr fallback (the worker flaps around BMKG's
+  // analysis refreshes; without this, every flap collapsed the pages to
+  // hero-only). Live state fills the gap when the cache has nothing yet;
+  // the refresh keeps both in agreement.
   readonly property var cuacaData: !entryIsVillage ? null
-    : (isCurrent ? (host.usingCuaca ? (cached.cuaca || host.bmkgReport) : null)
-                 : (cached.cuaca || null))
-  readonly property var wttrData: entryIsVillage ? null
-    : (isCurrent ? (!host.usingCuaca ? (cached.wttr || host.report) : null)
-                 : (cached.wttr || null))
-  readonly property var dailyData: entryIsVillage ? null
-    : (isCurrent ? (!host.usingCuaca ? (cached.daily || host.dailyForecastReport) : null)
-                 : (cached.daily || null))
+    : (cached.cuaca || (isCurrent ? (host.usingCuaca ? host.bmkgReport : null) : null))
+  readonly property var wttrData: isCurrent
+    ? (!host.usingCuaca ? (host.report || null) : null)
+    : (entryIsVillage ? null : (cached.wttr || null))
+  readonly property var dailyData: isCurrent
+    ? (!host.usingCuaca ? (cached.daily || host.dailyForecastReport) : null)
+    : (entryIsVillage ? null : (cached.daily || null))
   readonly property bool pageIsCuaca: cuacaData !== null
   readonly property var pageWarnings: isCurrent
     ? (cached.warnings && cached.warnings.length ? cached.warnings : host.bmkgWarnings)
