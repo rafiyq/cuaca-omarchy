@@ -4,6 +4,19 @@ Release history for the `cuaca.weather` bar plugin (versions track the
 plugin's `manifest.json`). Built and released in one working session on
 2026-10-28; each section notes the release that introduced the change.
 
+## 2.0.3 — 2026-11-21
+
+### Fixed
+- Pages other than the configured one froze on "Not loaded yet": the
+  report cache was mutated in place (`pageReports[key] = …`), which
+  fires no change notification, so each page's `cached` binding
+  evaluated once against the empty startup cache and never saw the
+  prefetch land. The v2.0.0 model rebuilds had masked this by
+  re-reading the cache on every switch; the identity-stability fix
+  exposed it. Cache writes now replace the property (reactive), with
+  an identical-content short-circuit so a refresh returning the same
+  forecast doesn't rebuild the settled page's strips.
+
 ## 2.0.2 — 2026-11-21
 
 ### Fixed

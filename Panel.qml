@@ -134,13 +134,27 @@ Panel {
   // fires onLocationQueryChanged: the handler must not wipe the install.
   property bool cachedInstallActive: false
 
+  // Cache writes REPLACE the pageReports property instead of mutating
+  // it: WeatherPage reads its entry through a `cached` binding, and a
+  // plain `pageReports[key] = …` mutation fires no change notification —
+  // the pages would freeze on their first (empty) evaluation and never
+  // see the prefetch land. Identical content short-circuits to a silent
+  // `at` bump, so a refresh that returned the same forecast doesn't
+  // rebuild the settled page's strips.
   function storeCachedReport(key, payload) {
     // Merge, not replace: a warnings payload learned earlier must
     // survive the forecast refresh that overwrites the entry.
     var prev = pageReports[key]
     if (prev && prev.warnings) payload.warnings = prev.warnings
     payload.at = Date.now()
-    pageReports[key] = payload
+    if (prev && JSON.stringify(prev) === JSON.stringify(payload)) {
+      prev.at = payload.at
+      return
+    }
+    var next = {}
+    for (var k in pageReports) next[k] = pageReports[k]
+    next[key] = payload
+    pageReports = next
   }
 
   // Learn-as-you-go for cached warnings (prefetch walk and live
@@ -149,7 +163,12 @@ Panel {
   function storeCachedWarnings(key, warnings) {
     var entry = pageReports[key]
     if (!entry) return
+    if (JSON.stringify(entry.warnings || []) === JSON.stringify(warnings)) return
     entry.warnings = warnings
+    var next = {}
+    for (var k in pageReports) next[k] = pageReports[k]
+    next[key] = entry
+    pageReports = next
   }
 
   // Keep the previous report visible while the new location loads. The
@@ -848,7 +867,13 @@ Panel {
   function schedulePrefetch() {
     var keys = {}
     for (var i = 0; i < recentLocations.length; i++) keys[Model.recentLocationKey(recentLocations[i])] = true
-    for (var k in pageReports) if (!keys[k]) delete pageReports[k]
+    var dropped = false
+    var pruned = {}
+    for (var k in pageReports) {
+      if (keys[k]) pruned[k] = pageReports[k]
+      else dropped = true
+    }
+    if (dropped) pageReports = pruned
     var maxAge = root.refreshMinutes * 60 * 1000
     // Two passes per stale village — forecast first, then its warnings —
     // so a page turn can paint the banner from cache too. Warnings ride
