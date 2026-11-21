@@ -791,6 +791,7 @@ Panel {
     var nextIndex = -1
     for (var i = 0; i < recentLocations.length; i++)
       if (Model.recentLocationKey(recentLocations[i]) === key) { nextIndex = i; break }
+    console.log("[cuaca-dbg] switch", entry.name, "nextIndex", nextIndex, "already-current", isCurrentRecent(entry))
     // Plan-B lite: a cached report paints the target before the switch
     // completes — no loading window on revisits; the refresh that follows
     // quietly overwrites with fresh data. Villages install their cuaca
@@ -889,6 +890,7 @@ Panel {
       if (!cached || !cached.warnings || stale)
         prefetchQueue.push({ key: key, adm4: String(e.adm4), kind: "warnings" })
     })
+    console.log("[cuaca-dbg] queue", prefetchQueue.map(function (q) { return q.kind + ":" + q.key }).join(","))
     runNextPrefetch()
   }
 
@@ -910,6 +912,7 @@ Panel {
       waitForEnd: true
       onStreamFinished: {
         var raw = String(text || "").trim()
+        console.log("[cuaca-dbg] fetched", prefetchKind, root.prefetchActiveKey, raw.length + "B")
         if (raw) {
           try {
             if (prefetchKind === "warnings") {
@@ -1368,6 +1371,8 @@ Panel {
           cacheBuffer: width * 4
           boundsBehavior: Flickable.StopAtBounds
           model: root.pageModel
+          onCountChanged: console.log("[cuaca-dbg] pager count", count)
+          onCurrentIndexChanged: console.log("[cuaca-dbg] pager idx", currentIndex)
 
           delegate: WeatherPage {
             width: pageCarousel.width

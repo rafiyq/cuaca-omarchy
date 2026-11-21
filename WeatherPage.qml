@@ -134,6 +134,14 @@ Item {
   readonly property string pageRain: pageCurrent && pageCurrent.rainProb !== undefined && pageCurrent.rainProb !== null ? (pageCurrent.rainProb + "%") : ""
   readonly property string pageHeroIcon: pageCurrent ? Model.currentIcon(pageCurrent, "", host.iconScheme) : ""
 
+  // ---- temporary diagnostics (remove once the pager data bug is fixed)
+  Component.onCompleted: console.log("[cuaca-dbg] page", index, "created key:", locKey,
+    "village:", entryIsVillage, "isCurrent:", isCurrent, "cachedKeys:", Object.keys(cached).join(",") || "none")
+  onCuacaDataChanged: console.log("[cuaca-dbg] page", index, "cuacaData", cuacaData ? "set" : "null")
+  onWttrDataChanged: console.log("[cuaca-dbg] page", index, "wttrData", wttrData ? "set" : "null")
+  onPageCurrentChanged: console.log("[cuaca-dbg] page", index, "pageCurrent", pageCurrent ? "set" : "null")
+  onImplicitHeightChanged: console.log("[cuaca-dbg] page", index, "implicitHeight", Math.round(implicitHeight))
+
   Column {
     id: pageColumn
     width: page.width
