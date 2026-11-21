@@ -1284,9 +1284,17 @@ Panel {
     centerOnBar: true
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(480))
+    // Card height follows the REST page (never resizes mid-drag).
+    // itemAtIndex is a method call — the engine registers no dependency
+    // on the delegate coming into existence — so the currentItem read is
+    // what re-runs this binding when the rest page's delegate appears;
+    // its implicitHeight keeps tracking data-driven height changes
+    // afterwards.
     contentHeight: {
       var it = pageCarousel.itemAtIndex(root.restPageIndex)
-      return panel.fittedContentHeight(it ? it.implicitHeight : 0)
+      var h = it ? it.implicitHeight : 0
+      if (h <= 0 && pageCarousel.currentItem) h = pageCarousel.currentItem.implicitHeight
+      return panel.fittedContentHeight(h)
     }
 
     PanelKeyCatcher {

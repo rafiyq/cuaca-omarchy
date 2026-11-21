@@ -4,6 +4,18 @@ Release history for the `cuaca.weather` bar plugin (versions track the
 plugin's `manifest.json`). Built and released in one working session on
 2026-10-28; each section notes the release that introduced the change.
 
+## 2.0.2 — 2026-11-21
+
+### Fixed
+- The popup collapsed to an empty rectangle: the rest-index card-height
+  binding read the delegate through `itemAtIndex()`, a method call the
+  binding engine registers no dependency on — it evaluated once at
+  startup with the delegate not yet created, cached a null, and never
+  re-ran. The binding now also reads the pager's `currentItem`, a
+  tracked property whose transition from null to the created delegate
+  re-runs the height, and the delegate's implicitHeight keeps tracking
+  data-driven changes afterwards.
+
 ## 2.0.1 — 2026-11-21
 
 ### Fixed
