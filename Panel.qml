@@ -1348,15 +1348,16 @@ Panel {
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(480))
     // Card height follows the REST page (never resizes mid-drag).
-    // itemAtIndex is a method call — the engine registers no dependency
-    // on the delegate coming into existence — so the currentItem read is
-    // what re-runs this binding when the rest page's delegate appears;
-    // its implicitHeight keeps tracking data-driven height changes
-    // afterwards.
+    // currentItem is read UNCONDITIONALLY: the engine tracks it, so
+    // every delegate recreation (model reset, first creation) re-runs
+    // this binding — itemAtIndex alone would keep depending on a
+    // destroyed delegate's height and never re-run (the ghost-page
+    // freeze that shrank the card to hero-only). The rest delegate's
+    // implicitHeight then tracks data-driven height changes.
     contentHeight: {
+      var ci = pageCarousel.currentItem
       var it = pageCarousel.itemAtIndex(root.restPageIndex)
-      var h = it ? it.implicitHeight : 0
-      if (h <= 0 && pageCarousel.currentItem) h = pageCarousel.currentItem.implicitHeight
+      var h = it ? it.implicitHeight : (ci ? ci.implicitHeight : 0)
       return panel.fittedContentHeight(h)
     }
 
