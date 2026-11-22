@@ -202,8 +202,9 @@ of the live conditions (temp with unit, wind, humidity, rain as available);
    each (time/icon/temp/rain %/wind), night icons included; a hairline
    separates every pair of day sections (same weight as the divider above
    BESOK).
-9. Carousel: real sliding pages — drag the body and both pages move
-   (Bali in from the edge while Bangkle slides out); settling commits.
+9. Carousel: real sliding pages — drag the body and both pages move;
+   hold a partial drag to peek, release commits the nearest page.
    Left/right scroll and arrow keys page too (up/down never pages);
-   the bar pill pages the same way. Dots under the strips show
-   position, tap to jump; switches update in place (insert-only).
+   the bar pill pages the same way. A pinned sliding pill at the
+   card's bottom shows position, tap a dot to jump; switches update
+   in place (insert-only).

@@ -57,14 +57,15 @@ feels-like temperature.
   location instantly (cached adm4, no resolve round-trip; the dropdown
   closes)
 - The popup is a true location carousel: drag the body and the pages
-  slide side by side, or scroll over it left/right (up/down never
+  slide side by side — hold a partial drag to peek, release to commit
+  the nearest page — or scroll over it left/right (up/down never
   pages); the bar pill pages the same way, and arrow keys page while
   the popup is open. Each step pages through the recorded locations in
-  list order. The dots
-  under the day strips show position (the active one accented, tap to
-  jump); a step is a real switch, same path as a row tap — cached steps
-  swap instantly, a true miss gets a quick page-turn dip while the fetch
-  lands. Reports are prefetched for the recorded villages (and
+  list order. The indicator
+  sits pinned at the card's bottom — a sliding accent pill over dim
+  dots, tap a dot to jump; a step is a real switch, same path as a row
+  tap, painting from the per-location cache. Reports are prefetched for
+  the recorded villages (and
   learned from every fetch), so revisits paint instantly — the warning
   banner included — and the fetch that follows only refreshes in the
   background. Switches keep the list

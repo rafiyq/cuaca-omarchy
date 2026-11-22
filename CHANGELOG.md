@@ -4,6 +4,51 @@ Release history for the `cuaca.weather` bar plugin (versions track the
 plugin's `manifest.json`). Built and released in one working session on
 2026-10-28; each section notes the release that introduced the change.
 
+## 2.1.0 — 2026-11-22
+
+### Added
+- The popup body is a true carousel: the body is `WeatherPage.qml`,
+  instantiated per recorded location inside a horizontal snapping
+  pager. Dragging shows both pages side by side, and a partial drag
+  HOLDS for peeking — release snaps the nearest page in and commits it
+  through the same `switchToRecent` path every pager uses. The pager's
+  snap is the page turn.
+- Pinned sliding-pill indicator: dim dots with one accent pill at the
+  card's bottom, gliding 200ms to the configured location's position —
+  it changes, it never slides with the pages.
+- Keyboard paging: arrow keys / vim h,l page locations while the popup
+  is open (the shell key catcher's moveRequested signal).
+- Prefetch resilience: when the cuaca worker serves an empty forecast
+  (it flaps around BMKG's analysis refreshes), the prefetch queues an
+  open-meteo pass for the village's coordinates and caches it as the
+  entry's daily data — neighbor pages show the fallback hero instead
+  of starving, and villages already serving fallback data skip their
+  cuaca pass until the epoch goes stale.
+
+### Changed
+- Per-page data prefers the per-location cache on every page including
+  the configured one (whose live fetches learn into the cache
+  synchronously) — committing a page doesn't flip its data source, and
+  the last-good strip view survives cuaca outages instead of
+  collapsing to hero-only.
+- Carousel feel: a flick glides gently and snaps nearest-page (the
+  strict range mode that made resting between pages impossible is
+  retired); wheel/dots/arrows paging glides the content over 300ms.
+- The recents list is identity-stable across file reloads and all
+  pages stay instantiated — the pager no longer rebuilds mid-slide.
+- The card height follows the page at rest plus the indicator band —
+  never resizing mid-drag.
+
+### Fixed
+- A cascade of pager-growth bugs that made every 2.0.x build render
+  partially: the card height froze on a destroyed ghost delegate
+  (hero-only), the report cache mutated in place so pages never saw
+  the prefetch land (stuck on "Not loaded yet"), and the indicator
+  band wasn't paid by the card height (strips' wind rows clipped).
+  Root causes — untracked method-call reads, in-place var mutations,
+  a missing height term — are each now tracked, reactive, or
+  accounted for.
+
 ## 2.0.3 — 2026-11-21
 
 ### Fixed
