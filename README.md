@@ -203,3 +203,20 @@ headless.
 - The built-in `omarchy.weather` plugin — the upstream this clone
   evolved from; the worldwide wttr/Open-Meteo fallback is its original
   behavior.
+
+License: [MIT](LICENSE).
+
+## Remove
+
+Remove the widget from your bar layout, delete the plugin directory,
+and rescan:
+
+```bash
+omarchy-shell shell rescanPlugins
+rm -rf ~/.config/omarchy/plugins/cuaca.weather
+```
+
+Weather data and preferences written under
+`~/.local/state/omarchy/settings/` (`weather.json`,
+`weather-recents.json`) can be deleted with it if you want a clean
+slate.
