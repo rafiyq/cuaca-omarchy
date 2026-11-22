@@ -1399,10 +1399,10 @@ Panel {
           snapMode: ListView.SnapOneItem
           highlightRangeMode: ListView.StrictlyEnforceRange
           highlightMoveDuration: 300
-          // Feel: gentle glide after a flick, capped flick speed, and a
-          // calmer snap for programmatic paging (wheel/dots/arrows).
-          flickDeceleration: 750
-          maximumFlickVelocity: 1200
+          // Feel note: flickDeceleration/maximumFlickVelocity were set to
+          // 750/1200 in 2.1.0-dev and scrolling stopped responding —
+          // reverted pending a one-at-a-time re-introduction. Only the
+          // snap duration is retained (300ms).
           clip: true
           interactive: !root.editingLocation
           // All pages stay instantiated: the location cap is 4, and a
