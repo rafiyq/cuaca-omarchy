@@ -116,6 +116,7 @@ Panel {
   property var prefetchQueue: []
   property string prefetchActiveKey: ""
   property string prefetchKind: "forecast"
+  property var prefetchBatchFallback: []
 
   // The pager's pages: the recorded locations, or the configured
   // location alone while nothing is recorded yet — a fresh install
@@ -142,10 +143,16 @@ Panel {
   // `at` bump, so a refresh that returned the same forecast doesn't
   // rebuild the settled page's strips.
   function storeCachedReport(key, payload) {
-    // Merge, not replace: a warnings payload learned earlier must
-    // survive the forecast refresh that overwrites the entry.
+    // Per-field merge, not replace: learned warnings survive the
+    // forecast refresh, and an open-meteo fallback write must not drop
+    // a cached cuaca forecast (payload fields win; existing fields are
+    // preserved when the payload lacks them).
     var prev = pageReports[key]
-    if (prev && prev.warnings) payload.warnings = prev.warnings
+    if (prev) {
+      if (prev.warnings && !payload.warnings) payload.warnings = prev.warnings
+      if (prev.cuaca && !payload.cuaca) payload.cuaca = prev.cuaca
+      if (prev.wttr && !payload.wttr) payload.wttr = prev.wttr
+    }
     payload.at = Date.now()
     if (prev && JSON.stringify(prev) === JSON.stringify(payload)) {
       prev.at = payload.at
@@ -890,13 +897,20 @@ Panel {
     }
     if (dropped) pageReports = pruned
     var maxAge = root.refreshMinutes * 60 * 1000
-    // Two passes per stale village — forecast first, then its warnings —
-    // so a page turn can paint the banner from cache too. Warnings ride
-    // the entry's refresh epoch: fresh forecast, fresh-enough warnings.
+    // Batch-first: stale villages ride ONE /api/batch invocation
+    // (forecast + warnings each), so the epoch costs a single worker
+    // call regardless of the location count. The batch item carries its
+    // per-village fallback entries — if the worker predates /api/batch
+    // or the batch fails, the collector re-queues them and the old
+    // single-village path (including the open-meteo fallback) takes
+    // over.
     prefetchQueue = []
+    var batchAdm4s = []
+    var batchFallback = []
     recentLocations.forEach(function (e) {
       if (String(e.adm4 || "") === "") return
       var key = Model.recentLocationKey(e)
+      var adm4 = String(e.adm4)
       var cached = pageReports[key]
       var stale = !cached || !cached.at || Date.now() - cached.at > maxAge
       // A village already serving fallback data (cuaca came back empty —
@@ -904,29 +918,38 @@ Panel {
       // pass until the entry goes stale again; hammering the endpoint for
       // a village that has open-meteo data buys nothing.
       var hasFallback = !!(cached && (cached.wttr || cached.daily))
-      if (!cached || (!cached.cuaca && !hasFallback) || stale)
-        prefetchQueue.push({ key: key, adm4: String(e.adm4), kind: "forecast" })
+      if (!cached || (!cached.cuaca && !hasFallback) || stale) {
+        batchAdm4s.push(adm4)
+        batchFallback.push({ key: key, adm4: adm4, kind: "forecast" })
+      }
       if (!cached || !cached.warnings || stale)
-        prefetchQueue.push({ key: key, adm4: String(e.adm4), kind: "warnings" })
+        batchFallback.push({ key: key, adm4: adm4, kind: "warnings" })
     })
+    if (batchAdm4s.length > 0)
+      prefetchQueue.push({ kind: "batch", adm4s: batchAdm4s, fallback: batchFallback })
+    prefetchQueue = prefetchQueue.concat(batchFallback)
     runNextPrefetch()
   }
 
   function runNextPrefetch() {
     if (prefetchProc.running || prefetchQueue.length === 0) return
     var item = prefetchQueue.shift()
-    prefetchActiveKey = item.key
+    prefetchActiveKey = item.key || ""
     prefetchKind = item.kind
-    prefetchProc.command = ["curl", "-fsS", "--max-time", "8",
-      item.kind === "warnings"
-        ? "https://cuaca.wilayah.workers.dev/api/warnings?adm4=" + encodeURIComponent(item.adm4)
-        : item.kind === "openmeteo"
-          ? "https://api.open-meteo.com/v1/forecast?latitude=" + encodeURIComponent(String(item.lat))
-            + "&longitude=" + encodeURIComponent(String(item.lon))
-            + "&daily=weather_code,temperature_2m_max,temperature_2m_min"
-            + "&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day"
-            + "&forecast_days=4&timezone=auto"
-          : "https://cuaca.wilayah.workers.dev/api/forecast?adm4=" + encodeURIComponent(item.adm4)]
+    prefetchBatchFallback = item.fallback || []
+    prefetchProc.command = item.kind === "batch"
+      ? ["curl", "-fsS", "--max-time", "12",
+         "https://cuaca.wilayah.workers.dev/api/batch?adm4=" + encodeURIComponent(item.adm4s.join(","))]
+      : ["curl", "-fsS", "--max-time", "8",
+          item.kind === "warnings"
+            ? "https://cuaca.wilayah.workers.dev/api/warnings?adm4=" + encodeURIComponent(item.adm4)
+            : item.kind === "openmeteo"
+              ? "https://api.open-meteo.com/v1/forecast?latitude=" + encodeURIComponent(String(item.lat))
+                + "&longitude=" + encodeURIComponent(String(item.lon))
+                + "&daily=weather_code,temperature_2m_max,temperature_2m_min"
+                + "&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day"
+                + "&forecast_days=4&timezone=auto"
+              : "https://cuaca.wilayah.workers.dev/api/forecast?adm4=" + encodeURIComponent(item.adm4)]
     prefetchProc.running = true
   }
 
@@ -953,6 +976,34 @@ Panel {
       waitForEnd: true
       onStreamFinished: {
         var raw = String(text || "").trim()
+        if (prefetchKind === "batch") {
+          var stored = false
+          try {
+            var parsed = JSON.parse(raw)
+            var results = parsed.results || []
+            for (var i = 0; i < results.length; i++) {
+              var r = results[i]
+              if (r.error || !r.forecast || !r.forecast.length) continue
+              var k = "adm4:" + r.adm4
+              root.storeCachedReport(k, { cuaca: { location: r.location, forecast: r.forecast, analysisDate: r.analysisDate } })
+              root.storeCachedWarnings(k, r.warnings || [])
+              stored = true
+            }
+          } catch (e) {}
+          if (stored) {
+            // The batch covered every stale village: drop the per-village
+            // fallback entries queued behind it.
+            prefetchQueue = prefetchQueue.filter(function (q) {
+              return q.kind !== "forecast" && q.kind !== "warnings"
+            })
+          } else {
+            // Old worker (no /api/batch) or a failed batch: per-village
+            // passes take over, open-meteo fallback included.
+            prefetchQueue = prefetchQueue.concat(prefetchBatchFallback)
+          }
+          Qt.callLater(root.runNextPrefetch)
+          return
+        }
         if (raw) {
           try {
             if (prefetchKind === "warnings") {
@@ -1330,11 +1381,22 @@ Panel {
 
   Timer {
     id: refreshTimer
-    interval: root.refreshMinutes * 60 * 1000
+    // Phase-stagger: the first periodic gap is randomized across half an
+    // epoch (per-install Math.random) so a fleet of installs doesn't poll
+    // the worker in lockstep; later gaps are exact. The triggeredOnStart
+    // fetch still lands immediately.
+    interval: root.refreshMinutes * 60 * 1000 * (0.5 + 0.5 * Math.random())
     running: true
     repeat: true
     triggeredOnStart: true
-    onTriggered: root.refresh()
+    property bool exactPhase: false
+    onTriggered: {
+      if (!exactPhase) {
+        exactPhase = true
+        interval = root.refreshMinutes * 60 * 1000
+      }
+      root.refresh()
+    }
   }
 
   IpcHandler {
