@@ -6,6 +6,25 @@ upstream `omarchy.weather` plugin, rebuilt around
 Badan Meteorologi Klimatologi dan Geofisika) with the original worldwide
 data path kept as a fallback. Release history lives in `CHANGELOG.md`.
 
+## Install
+
+Requires an Omarchy install with the Quattro shell (plugin support) and
+`curl`.
+
+```bash
+git clone https://github.com/rafiyq/cuaca-omarchy ~/.config/omarchy/plugins/cuaca.weather
+omarchy-shell shell rescanPlugins
+omarchy plugin enable cuaca.weather
+omarchy bar move cuaca.weather
+```
+
+Open the detail popup from the pill (left-click); the location label
+inside it opens the search editor. Widget settings — units, icon set,
+condition language, refresh interval — live in the popup's gear menu,
+with the defaults declared in `manifest.json`. Shell commands:
+`omarchy-shell shell summon cuaca.weather '{}'` opens the popup and
+`omarchy-shell shell hide cuaca.weather` closes it.
+
 ## Data sources
 
 | Location resolves to | Source |
@@ -175,3 +194,12 @@ headless.
   this plugin's own popup rows could be retired in favor of it.
 - A user-level `omarchy-weather-status` shadow script dead-ended: PATH
   resolves `/usr/share/omarchy/bin` ahead of `~/.local/bin`.
+
+## Credits
+
+- [cuaca-worker](https://github.com/rafiyq/cuaca-worker) — the companion
+  BMKG village-level forecast worker (`cuaca.wilayah.workers.dev`) this
+  plugin is built around, also by rafiyq.
+- The built-in `omarchy.weather` plugin — the upstream this clone
+  evolved from; the worldwide wttr/Open-Meteo fallback is its original
+  behavior.

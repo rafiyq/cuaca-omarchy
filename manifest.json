@@ -12,7 +12,7 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "My Weather",
+    "displayName": "Cuaca Weather",
     "description": "BMKG weather pill with detail popup (cuaca.wilayah.workers.dev), worldwide fallback",
     "category": "Info",
     "allowMultiple": false,
@@ -77,8 +77,5 @@
         "description": "How often the widget re-fetches weather data."
       }
     ]
-  },
-  "omarchy": {
-    "clonedFrom": "omarchy.weather"
   }
 }
