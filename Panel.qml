@@ -1373,7 +1373,10 @@ Panel {
       var ci = pageCarousel.currentItem
       var it = pageCarousel.itemAtIndex(root.restPageIndex)
       var h = it ? it.implicitHeight : (ci ? ci.implicitHeight : 0)
-      return panel.fittedContentHeight(h)
+      // + indicatorSpace: the pager reserves that band for the pinned
+      // dots — without it the card comes up short and the strips'
+      // bottom rows (wind) clip under the indicator.
+      return panel.fittedContentHeight(h + pagerHost.indicatorSpace)
     }
 
     PanelKeyCatcher {
