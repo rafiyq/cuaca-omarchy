@@ -1398,7 +1398,11 @@ Panel {
           orientation: Qt.Horizontal
           snapMode: ListView.SnapOneItem
           highlightRangeMode: ListView.StrictlyEnforceRange
-          highlightMoveDuration: 180
+          highlightMoveDuration: 300
+          // Feel: gentle glide after a flick, capped flick speed, and a
+          // calmer snap for programmatic paging (wheel/dots/arrows).
+          flickDeceleration: 750
+          maximumFlickVelocity: 1200
           clip: true
           interactive: !root.editingLocation
           // All pages stay instantiated: the location cap is 4, and a

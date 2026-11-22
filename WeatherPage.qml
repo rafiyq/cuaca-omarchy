@@ -831,44 +831,59 @@ Item {
         }
       }
 
-      // ---- Carousel dots: one per recorded location, the active one
-      //      accented; a tap jumps straight there. Hidden below two
-      //      locations — a single dot is decoration and the cycle has
-      //      nowhere to go. Identical on every page: the active dot is
-      //      the configured location, so both visible pages agree
-      //      mid-drag and flip together at the settle.
-      Row {
+      // ---- Carousel indicator: dim dots with one accent pill that
+      //      glides to the configured location's position — the pill
+      //      moving reads as part of the page motion. Hidden below two
+      //      locations. Identical on every page: the pill sits at the
+      //      same index on both visible pages and travels at the settle.
+      //      The dot cells stay 14px wide for the tap targets.
+      Item {
+        id: dotsRow
         visible: page.host.recentLocations.length >= 2
+        width: (page.host.recentLocations.length - 1) * Style.space(14) + Style.space(6)
+        height: Style.space(14)
         anchors.horizontalCenter: parent.horizontalCenter
-        spacing: Style.space(8)
+
+        // The configured location's index in the dots' model; rests on
+        // dot 0 while no recorded entry is current (fresh install).
+        readonly property int activeIndex: {
+          var idx = 0
+          for (var i = 0; i < page.host.recentLocations.length; i++)
+            if (page.host.isCurrentRecent(page.host.recentLocations[i])) { idx = i; break }
+          return idx
+        }
 
         Repeater {
           model: page.host.recentLocations
 
-          Item {
-            id: pageDot
-            required property var modelData
-            readonly property bool isActive: page.host.isCurrentRecent(pageDot.modelData)
-
-            width: Style.space(14)
-            height: Style.space(14)
-
-            Rectangle {
-              anchors.centerIn: parent
-              width: Style.space(6)
-              height: Style.space(6)
-              radius: width / 2
-              color: pageDot.isActive ? Commons.Color.accent : page.bar.foreground
-              opacity: pageDot.isActive ? 1 : 0.35
-              Behavior on opacity { NumberAnimation { duration: 120 } }
-            }
+          Rectangle {
+            required property int index
+            x: index * Style.space(14)
+            anchors.verticalCenter: parent.verticalCenter
+            width: Style.space(6)
+            height: Style.space(6)
+            radius: width / 2
+            color: page.bar.foreground
+            opacity: 0.35
 
             MouseArea {
               anchors.fill: parent
+              anchors.margins: -Style.space(4)
               cursorShape: Qt.PointingHandCursor
-              onClicked: page.host.switchToRecent(pageDot.modelData)
+              onClicked: page.host.switchToRecent(page.host.recentLocations[index])
             }
           }
+        }
+
+        Rectangle {
+          anchors.verticalCenter: parent.verticalCenter
+          x: dotsRow.activeIndex * Style.space(14) - Style.space(5)
+          width: Style.space(16)
+          height: Style.space(6)
+          radius: height / 2
+          color: Commons.Color.accent
+
+          Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
         }
       }
 
