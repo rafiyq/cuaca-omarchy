@@ -831,12 +831,13 @@ Panel {
     }
     cachedInstallActive = false
     // The pager follows the commit: dots, rows, wheel and pill paths all
-    // land here, and the ListView animates the snap itself. Drag-settles
-    // arrive already on the target index, so this is a no-op for them.
-    if (nextIndex >= 0 && pageCarousel.currentIndex !== nextIndex)
-      pageCarousel.currentIndex = nextIndex
-    if (nextIndex >= 0)
+    // land here, and the content glides (no strict-range chase anymore).
+    // Drag-settles arrive already on the target index, so this is a
+    // no-op for them.
+    if (nextIndex >= 0) {
       restPageIndex = nextIndex
+      glidePagerTo(nextIndex)
+    }
     persistLocation(String(entry.name), entry.latitude === undefined ? null : entry.latitude, entry.longitude === undefined ? null : entry.longitude)
     saveRecentLocations(Model.commitRecentLocation(recentLocations, entry, 4))
     settingsOpen = false
@@ -854,6 +855,20 @@ Panel {
     cycleThrottle.restart()
     var target = (pageCarousel.currentIndex + dir + n) % n
     switchToRecent(pageModel[target])
+  }
+
+  // Programmatic paging glide: with the strict range mode gone, the
+  // content no longer chases the highlight — glide it manually. The
+  // currentIndex follows the leading item as the glide moves and is
+  // pinned exactly on stop.
+  function glidePagerTo(nextIndex) {
+    var targetX = nextIndex * pageCarousel.width
+    if (Math.abs(pageCarousel.contentX - targetX) < 1) {
+      pageCarousel.currentIndex = nextIndex
+      return
+    }
+    pagerGlide.to = targetX
+    pagerGlide.restart()
   }
 
   Process {
@@ -1381,28 +1396,33 @@ Panel {
         root.cycleLocation(dx)
       }
 
-      // ---- The pager: one WeatherPage per recorded location, snapping
-      //      horizontally. Dragging gives the real side-by-side slide —
-      //      Bali in from the edge while Bangkle slides out — and
-      //      settling on a page commits it (switchToRecent), so browsing
-      //      and switching stay the same act they have always been.
-      //      Horizontal wheel pages via the NoButton overlay above the
-      //      pages; up/down never pages and scrolls a page natively if
-      //      one ever overflows its card.
+      // ---- The pager: one WeatherPage per recorded location. Dragging
+      //      gives the real side-by-side slide — Bali in from the edge
+      //      while Bangkle slides out — and because the range mode is
+      //      the default (no strict enforcement), a partial drag HOLDS
+      //      for peeking; on release the nearest page snaps in
+      //      (SnapOneItem) and commits (switchToRecent). Horizontal
+      //      wheel pages via the NoButton overlay above the pages;
+      //      up/down never pages.
       Item {
+        id: pagerHost
         anchors.fill: parent
+        // Bottom band reserved for the pinned indicator.
+        readonly property real indicatorSpace: Style.space(24)
 
         ListView {
           id: pageCarousel
-          anchors.fill: parent
+          anchors.top: pagerHost.top
+          anchors.left: pagerHost.left
+          anchors.right: pagerHost.right
+          anchors.bottom: pagerHost.bottom
+          anchors.bottomMargin: pagerHost.indicatorSpace
           orientation: Qt.Horizontal
           snapMode: ListView.SnapOneItem
-          highlightRangeMode: ListView.StrictlyEnforceRange
-          highlightMoveDuration: 300
-          // Feel note: flickDeceleration/maximumFlickVelocity were set to
-          // 750/1200 in 2.1.0-dev and scrolling stopped responding —
-          // reverted pending a one-at-a-time re-introduction. Only the
-          // snap duration is retained (300ms).
+          // No highlight range: a partial drag HOLDS for peeking, and
+          // release snaps to the nearest page. The strict range mode
+          // animated programmatic paging but made resting between
+          // pages impossible.
           clip: true
           interactive: !root.editingLocation
           // All pages stay instantiated: the location cap is 4, and a
@@ -1413,6 +1433,7 @@ Panel {
           model: root.pageModel
           onCountChanged: console.log("[cuaca-dbg] pager count", count)
           onCurrentIndexChanged: console.log("[cuaca-dbg] pager idx", currentIndex)
+          onMovementStarted: pagerGlide.stop()
 
           delegate: WeatherPage {
             width: pageCarousel.width
@@ -1425,6 +1446,74 @@ Panel {
             if (idx < 0 || idx >= root.pageModel.length) return
             root.restPageIndex = idx
             root.switchToRecent(root.pageModel[idx])
+          }
+        }
+
+        // Programmatic paging (wheel/dots/arrows): the content glides —
+        // the strict-range highlight chase is gone with the peeking
+        // change, so the glide is explicit now.
+        NumberAnimation {
+          id: pagerGlide
+          target: pageCarousel
+          property: "contentX"
+          duration: 300
+          easing.type: Easing.OutCubic
+          onStopped: pageCarousel.currentIndex = Math.max(0,
+            Math.min(root.pageModel.length - 1, Math.round(pageCarousel.contentX / pageCarousel.width)))
+        }
+
+        // ---- Pinned indicator: dim dots + one accent pill that changes
+        //      position with a 200ms glide. Lives HERE, not in the pages —
+        //      it must not slide with them.
+        Item {
+          id: dotsRow
+          visible: root.recentLocations.length >= 2
+          width: (root.recentLocations.length - 1) * Style.space(14) + Style.space(6)
+          height: Style.space(14)
+          anchors.bottom: parent.bottom
+          anchors.bottomMargin: Style.space(5)
+          anchors.horizontalCenter: parent.horizontalCenter
+
+          // The configured location's index in the dots' model; rests on
+          // dot 0 while no recorded entry is current (fresh install).
+          readonly property int activeIndex: {
+            var idx = 0
+            for (var i = 0; i < root.recentLocations.length; i++)
+              if (root.isCurrentRecent(root.recentLocations[i])) { idx = i; break }
+            return idx
+          }
+
+          Repeater {
+            model: root.recentLocations
+
+            Rectangle {
+              required property int index
+              x: index * Style.space(14)
+              anchors.verticalCenter: parent.verticalCenter
+              width: Style.space(6)
+              height: Style.space(6)
+              radius: width / 2
+              color: root.bar.foreground
+              opacity: 0.35
+
+              MouseArea {
+                anchors.fill: parent
+                anchors.margins: -Style.space(4)
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.switchToRecent(root.recentLocations[index])
+              }
+            }
+          }
+
+          Rectangle {
+            anchors.verticalCenter: parent.verticalCenter
+            x: dotsRow.activeIndex * Style.space(14) - Style.space(5)
+            width: Style.space(16)
+            height: Style.space(6)
+            radius: height / 2
+            color: Commons.Color.accent
+
+            Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
           }
         }
 
@@ -1444,7 +1533,6 @@ Panel {
           }
         }
       }
-
       // ---- Settings: a fixed corner gear plus a dropdown menu.
       //      Both live in this layer, declared after the Flickable, so
       //      they paint above the popup's scroll content and stay put
