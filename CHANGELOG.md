@@ -4,6 +4,23 @@ Release history for the `cuaca.weather` bar plugin (versions track the
 plugin's `manifest.json`). Built and released in one working session on
 2026-10-28; each section notes the release that introduced the change.
 
+## 2.1.1 — 2026-11-23
+
+### Changed
+- Batch-first prefetch: stale villages ride ONE `/api/batch` invocation
+  (forecast + warnings each) instead of 2n calls — an epoch costs a
+  single worker call regardless of the location count. The batch item
+  carries per-village fallback entries re-queued when the worker
+  predates the endpoint or the batch fails, so the single-village path
+  (open-meteo fallback included) stays the safety net. Pairs with the
+  cuaca-worker release: an SWR API cache (fresh 5 min, stale served up
+  to 6h with background revalidation — BMKG's analysis-refresh windows
+  no longer surface as empty forecasts) and a per-install refresh
+  phase-stagger so a fleet of installs doesn't poll in lockstep.
+- `storeCachedReport` is a per-field merge: an open-meteo fallback
+  write no longer drops a cached cuaca forecast, and learned warnings
+  survive every overwrite.
+
 ## 2.1.0 — 2026-11-22
 
 ### Added
